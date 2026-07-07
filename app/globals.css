@@ -1,0 +1,298 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body {
+    background-color: theme('colors.sand.100');
+    color: theme('colors.ink.800');
+    font-family: theme('fontFamily.sans');
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* ── Dawn light ─────────────────────────────────────────
+     A quiet sunrise across the canvas: HARTS gold rising in
+     the top-right, Evora violet resting in the bottom-left.
+     Sits behind all content, never competes with it. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 1000px 700px at 90% -10%, rgba(232, 160, 32, 0.12), transparent 65%),
+      radial-gradient(ellipse 900px 680px at -14% 110%, rgba(108, 71, 232, 0.09), transparent 64%),
+      radial-gradient(ellipse 560px 420px at 62% 38%, rgba(62, 143, 207, 0.04), transparent 65%);
+  }
+  /* sun rays sweeping from the dawn corner across the canvas */
+  body::after {
+    content: "";
+    position: fixed;
+    top: -360px;
+    right: -360px;
+    width: 1500px;
+    height: 1500px;
+    z-index: -1;
+    pointer-events: none;
+    background: repeating-conic-gradient(
+      from 120deg at 63% 37%,
+      rgba(232, 160, 32, 0.055) 0deg 4.5deg,
+      transparent 4.5deg 15deg
+    );
+    -webkit-mask-image: radial-gradient(circle at 63% 37%, black 0%, transparent 72%);
+    mask-image: radial-gradient(circle at 63% 37%, black 0%, transparent 72%);
+  }
+
+  ::selection {
+    background-color: theme('colors.coral');
+    color: white;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-cream border border-sand-200 rounded-card shadow-card;
+  }
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium;
+  }
+  .stat-num {
+    font-family: theme('fontFamily.serif');
+  }
+}
+
+/* ── Living elephant ──────────────────────────────────────────
+   Every part group (.ele-whole, .ele-head, .ele-ear-*, .ele-trunk,
+   .ele-pupils, accents) is animated per-vibe, gated by .ele-live
+   on the root svg. Each mood moves differently:
+   going_well  = bouncing, ears flapping, trunk trumpeting
+   watch_it    = still body, twitchy ears, scanning head + eyes
+   stuck       = heavy slump, sagging ears, dragging trunk, tears
+   quiet_week  = slow breathing, drowsy ears, curled trunk, Zzz  */
+
+/* part anchors */
+.ele-whole,
+.ele-head,
+.ele-ear-left,
+.ele-ear-right,
+.ele-trunk,
+.ele-tail,
+.ele-pupils {
+  transform-box: view-box;
+}
+.ele-whole     { transform-origin: 50px 95px; }
+.ele-head      { transform-origin: 50px 55px; }
+.ele-ear-left  { transform-origin: 31px 40px; }
+.ele-ear-right { transform-origin: 69px 40px; }
+.ele-trunk     { transform-origin: 49px 56px; }
+.ele-tail      { transform-origin: 76px 77px; }
+
+/* shared keyframes */
+@keyframes ele-bounce {
+  0%, 100% { transform: translateY(0); }
+  45%      { transform: translateY(-4.5px); }
+}
+@keyframes ele-droop {
+  0%, 25%, 100% { transform: translateY(0); }
+  65%           { transform: translateY(3px); }
+}
+@keyframes ele-breathe {
+  0%, 100% { transform: scaleY(1); }
+  50%      { transform: scaleY(1.03) translateY(-0.5px); }
+}
+@keyframes ele-head-tilt {
+  0%, 100% { transform: rotate(0deg); }
+  40%      { transform: rotate(-2.5deg); }
+  75%      { transform: rotate(1.5deg); }
+}
+@keyframes ele-head-scan {
+  0%, 30%, 100% { transform: rotate(0deg); }
+  40%, 55%      { transform: rotate(-2.2deg); }
+  70%, 85%      { transform: rotate(2.2deg); }
+}
+@keyframes ele-head-heavy {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  55%      { transform: rotate(2deg) translateY(1.2px); }
+}
+@keyframes ele-ear-flap-l {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(-7deg); }
+}
+@keyframes ele-ear-flap-r {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(7deg); }
+}
+@keyframes ele-ear-twitch-l {
+  0%, 64%, 82%, 100% { transform: rotate(0deg); }
+  70%                { transform: rotate(-9deg); }
+  76%                { transform: rotate(3deg); }
+}
+@keyframes ele-ear-twitch-r {
+  0%, 64%, 82%, 100% { transform: rotate(0deg); }
+  70%                { transform: rotate(9deg); }
+  76%                { transform: rotate(-3deg); }
+}
+@keyframes ele-ear-sag-l {
+  0%, 100% { transform: rotate(0deg); }
+  55%      { transform: rotate(-5deg) translateY(1px); }
+}
+@keyframes ele-ear-sag-r {
+  0%, 100% { transform: rotate(0deg); }
+  55%      { transform: rotate(5deg) translateY(1px); }
+}
+@keyframes ele-ear-drowse-l {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(-2.5deg); }
+}
+@keyframes ele-ear-drowse-r {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(2.5deg); }
+}
+@keyframes ele-trunk-wave {
+  0%, 100% { transform: rotate(0deg); }
+  35%      { transform: rotate(11deg); }
+  70%      { transform: rotate(-7deg); }
+}
+@keyframes ele-trunk-sniff {
+  0%, 55%, 100% { transform: rotate(0deg); }
+  65%           { transform: rotate(4deg); }
+  75%           { transform: rotate(-2.5deg); }
+  85%           { transform: rotate(2deg); }
+}
+@keyframes ele-trunk-drag {
+  0%, 100% { transform: rotate(0deg); }
+  55%      { transform: rotate(2.5deg) translateY(0.8px); }
+}
+@keyframes ele-trunk-curl {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(-3deg); }
+}
+@keyframes ele-tail-wag {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(11deg); }
+}
+@keyframes ele-tail-flick {
+  0%, 68%, 88%, 100% { transform: rotate(0deg); }
+  74%                { transform: rotate(10deg); }
+  80%                { transform: rotate(-3deg); }
+}
+@keyframes ele-tail-limp {
+  0%, 100% { transform: rotate(0deg); }
+  55%      { transform: rotate(4deg) translateY(0.5px); }
+}
+@keyframes ele-tail-sway {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(-4deg); }
+}
+@keyframes ele-eye-dart {
+  0%, 35%, 100% { transform: translateX(0); }
+  45%, 55%      { transform: translateX(-1.6px); }
+  70%, 85%      { transform: translateX(1.6px); }
+}
+@keyframes ele-sparkle-twinkle {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.15; }
+}
+@keyframes ele-zz-drift {
+  0%   { transform: translateY(0);    opacity: 0.55; }
+  80%  { transform: translateY(-6px); opacity: 0.1; }
+  100% { transform: translateY(-6px); opacity: 0; }
+}
+@keyframes ele-tear-fall {
+  0%   { transform: translateY(0);   opacity: 0.85; }
+  100% { transform: translateY(9px); opacity: 0; }
+}
+
+/* going well — joy in every limb */
+.ele-live[data-vibe="going_well"] .ele-whole     { animation: ele-bounce 1.4s ease-in-out infinite; }
+.ele-live[data-vibe="going_well"] .ele-head      { animation: ele-head-tilt 2.8s ease-in-out infinite; }
+.ele-live[data-vibe="going_well"] .ele-ear-left  { animation: ele-ear-flap-l 1.4s ease-in-out infinite; }
+.ele-live[data-vibe="going_well"] .ele-ear-right { animation: ele-ear-flap-r 1.4s ease-in-out infinite 0.15s; }
+.ele-live[data-vibe="going_well"] .ele-trunk     { animation: ele-trunk-wave 1.4s ease-in-out infinite; }
+.ele-live[data-vibe="going_well"] .ele-tail      { animation: ele-tail-wag 0.9s ease-in-out infinite; }
+.ele-live[data-vibe="going_well"] .ele-sparkles  { animation: ele-sparkle-twinkle 1.4s ease-in-out infinite alternate; }
+
+/* watch it — still body, alert senses */
+.ele-live[data-vibe="watch_it"] .ele-head      { animation: ele-head-scan 2.4s ease-in-out infinite; }
+.ele-live[data-vibe="watch_it"] .ele-pupils    { animation: ele-eye-dart 2.4s ease-in-out infinite; }
+.ele-live[data-vibe="watch_it"] .ele-ear-left  { animation: ele-ear-twitch-l 3.2s ease-in-out infinite; }
+.ele-live[data-vibe="watch_it"] .ele-ear-right { animation: ele-ear-twitch-r 3.2s ease-in-out infinite 1.6s; }
+.ele-live[data-vibe="watch_it"] .ele-trunk     { animation: ele-trunk-sniff 2.4s ease-in-out infinite; }
+.ele-live[data-vibe="watch_it"] .ele-tail      { animation: ele-tail-flick 3.2s ease-in-out infinite 0.8s; }
+
+/* stuck — everything hangs a little heavier */
+.ele-live[data-vibe="stuck"] .ele-whole     { animation: ele-droop 3.5s ease-in-out infinite; }
+.ele-live[data-vibe="stuck"] .ele-head      { animation: ele-head-heavy 3.5s ease-in-out infinite; }
+.ele-live[data-vibe="stuck"] .ele-ear-left  { animation: ele-ear-sag-l 3.5s ease-in-out infinite; }
+.ele-live[data-vibe="stuck"] .ele-ear-right { animation: ele-ear-sag-r 3.5s ease-in-out infinite; }
+.ele-live[data-vibe="stuck"] .ele-trunk     { animation: ele-trunk-drag 3.5s ease-in-out infinite; }
+.ele-live[data-vibe="stuck"] .ele-tail      { animation: ele-tail-limp 3.5s ease-in-out infinite; }
+.ele-live[data-vibe="stuck"] .ele-tear-1 { transform-box: fill-box; animation: ele-tear-fall 1.6s ease-in infinite 0s; }
+.ele-live[data-vibe="stuck"] .ele-tear-2 { transform-box: fill-box; animation: ele-tear-fall 1.6s ease-in infinite 0.45s; }
+.ele-live[data-vibe="stuck"] .ele-tear-3 { transform-box: fill-box; animation: ele-tear-fall 1.6s ease-in infinite 0.2s; }
+.ele-live[data-vibe="stuck"] .ele-tear-4 { transform-box: fill-box; animation: ele-tear-fall 1.6s ease-in infinite 0.65s; }
+
+/* quiet week — soft breathing sleep */
+.ele-live[data-vibe="quiet_week"] .ele-whole     { transform-origin: 50px 74px; animation: ele-breathe 2.5s ease-in-out infinite; }
+.ele-live[data-vibe="quiet_week"] .ele-ear-left  { animation: ele-ear-drowse-l 4.5s ease-in-out infinite; }
+.ele-live[data-vibe="quiet_week"] .ele-ear-right { animation: ele-ear-drowse-r 4.5s ease-in-out infinite 0.6s; }
+.ele-live[data-vibe="quiet_week"] .ele-trunk     { animation: ele-trunk-curl 4s ease-in-out infinite; }
+.ele-live[data-vibe="quiet_week"] .ele-tail      { animation: ele-tail-sway 4.5s ease-in-out infinite; }
+.ele-live[data-vibe="quiet_week"] .ele-zz        { animation: ele-zz-drift 2.5s ease-out infinite; }
+
+/* ── Corner sun ───────────────────────────────────────────
+   A small sun resting in the hero corner; rays sweep slowly
+   out of it. Outer span positions (center = the corner);
+   inner span carries the turning rays; ::before is the sun. */
+.hero-rays {
+  position: absolute;
+  pointer-events: none;
+}
+.hero-rays::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle,
+    rgba(255, 228, 168, 0.55) 0%,
+    rgba(255, 210, 140, 0.22) 2.2%,
+    rgba(255, 200, 130, 0.08) 4.5%,
+    transparent 9%
+  );
+}
+.hero-rays > span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  background: repeating-conic-gradient(
+    rgba(255, 240, 214, 0.05) 0deg 5deg,
+    transparent 5deg 17deg
+  );
+  -webkit-mask-image: radial-gradient(circle, black 0%, transparent 58%);
+  mask-image: radial-gradient(circle, black 0%, transparent 58%);
+  animation: hero-rays-turn 120s linear infinite;
+}
+@keyframes hero-rays-turn {
+  to { transform: rotate(360deg); }
+}
+
+/* calm for anyone who prefers stillness */
+@media (prefers-reduced-motion: reduce) {
+  .hero-rays > span { animation: none !important; }
+  .ele-live .ele-whole,
+  .ele-live .ele-head,
+  .ele-live .ele-ear-left,
+  .ele-live .ele-ear-right,
+  .ele-live .ele-trunk,
+  .ele-live .ele-tail,
+  .ele-live .ele-pupils,
+  .ele-live .ele-sparkles,
+  .ele-live .ele-zz,
+  .ele-live [class^="ele-tear"] {
+    animation: none !important;
+  }
+}
