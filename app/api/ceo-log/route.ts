@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readCeoLog, setAction, setView } from "@/lib/ceo-store";
+import { readCeoLog, setAction, setNote, setView } from "@/lib/ceo-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +23,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "programmeId required" }, { status: 400 });
     }
     await setView(body.programmeId);
+    return NextResponse.json({ ok: true });
+  }
+  if (body.type === "note") {
+    if (typeof body.programmeId !== "string" || typeof body.text !== "string") {
+      return NextResponse.json(
+        { error: "programmeId and text required" },
+        { status: 400 }
+      );
+    }
+    await setNote(body.programmeId, body.text);
     return NextResponse.json({ ok: true });
   }
   return NextResponse.json({ error: "invalid type" }, { status: 400 });

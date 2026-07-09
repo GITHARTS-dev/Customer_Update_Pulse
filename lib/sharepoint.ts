@@ -30,6 +30,15 @@ async function getAccessToken(): Promise<AccessToken> {
   return { ok: true, token: session.accessToken };
 }
 
+const MAX_ATTEMPTS = 3;
+const REQUEST_TIMEOUT_MS = 15000;
+
+function backoff(attempt: number): Promise<void> {
+  // 300ms, 600ms — short enough to stay within a page render, long enough to
+  // ride out a blip or a Graph 429/5xx.
+  return new Promise((resolve) => setTimeout(resolve, attempt * 300));
+}
+
 async function graphFetch<T>(
   path: string,
   init?: RequestInit
@@ -37,22 +46,42 @@ async function graphFetch<T>(
   const tokenResult = await getAccessToken();
   if (!tokenResult.ok) return tokenResult;
 
-  try {
-    const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${tokenResult.token}`,
-        ...(init?.headers ?? {})
-      },
-      cache: "no-store"
-    });
-    if (!res.ok) {
+  let lastStatus: number | undefined;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${tokenResult.token}`,
+          ...(init?.headers ?? {})
+        },
+        cache: "no-store",
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+      if (res.ok) return { ok: true, data: (await res.json()) as T };
+
+      lastStatus = res.status;
+      // Retry transient server errors and rate limits; a 4xx (auth, bad
+      // request) won't fix itself, so return it straight away.
+      if ((res.status >= 500 || res.status === 429) && attempt < MAX_ATTEMPTS) {
+        await backoff(attempt);
+        continue;
+      }
       return { ok: false, reason: "graph-error", status: res.status };
+    } catch {
+      // Aborted (timeout) or a genuine network failure — worth another go.
+      clearTimeout(timer);
+      if (attempt < MAX_ATTEMPTS) {
+        await backoff(attempt);
+        continue;
+      }
+      return { ok: false, reason: "network-error" };
     }
-    return { ok: true, data: (await res.json()) as T };
-  } catch {
-    return { ok: false, reason: "network-error" };
   }
+  return { ok: false, reason: "graph-error", status: lastStatus };
 }
 
 export interface SharePointListItem {
@@ -93,4 +122,87 @@ export function updateSharePointListItemFields(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(fields)
   });
+}
+
+/** The Graph driveItem shape we read back after an upload. */
+interface DriveItem {
+  name: string;
+  webUrl: string;
+}
+
+/** What we hand back to callers: a display name and a browser-openable URL. */
+export interface UploadedFile {
+  name: string;
+  url: string;
+}
+
+const SIMPLE_UPLOAD_MAX = 4 * 1024 * 1024; // 4 MB — Graph's simple-PUT ceiling
+
+/**
+ * Uploads a file to the site's default document library and returns its
+ * name + a browser-openable webUrl. Small files go via a single PUT; larger
+ * ones use an upload session. The lead's session token is used, so the file
+ * lands under the lead's identity and the CEO (who has site access) can open
+ * the returned webUrl directly. Claude never touches these files.
+ */
+export async function uploadFileToSiteDrive(
+  siteId: string,
+  path: string,
+  bytes: ArrayBuffer,
+  contentType: string
+): Promise<SharePointResult<UploadedFile>> {
+  const tokenResult = await getAccessToken();
+  if (!tokenResult.ok) return tokenResult;
+
+  const encodedPath = path
+    .split("/")
+    .map((seg) => encodeURIComponent(seg))
+    .join("/");
+  const base = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${encodedPath}:`;
+
+  try {
+    if (bytes.byteLength <= SIMPLE_UPLOAD_MAX) {
+      const res = await fetch(`${base}/content`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${tokenResult.token}`,
+          "Content-Type": contentType || "application/octet-stream"
+        },
+        body: bytes,
+        cache: "no-store"
+      });
+      if (!res.ok) return { ok: false, reason: "graph-error", status: res.status };
+      const item = (await res.json()) as DriveItem;
+      return { ok: true, data: { name: item.name, url: item.webUrl } };
+    }
+
+    // Larger files: open an upload session, then send the whole buffer at once.
+    const sessRes = await fetch(`${base}/createUploadSession`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${tokenResult.token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ item: { "@microsoft.graph.conflictBehavior": "rename" } }),
+      cache: "no-store"
+    });
+    if (!sessRes.ok) return { ok: false, reason: "graph-error", status: sessRes.status };
+    const { uploadUrl } = (await sessRes.json()) as { uploadUrl: string };
+
+    const size = bytes.byteLength;
+    const putRes = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Length": String(size),
+        "Content-Range": `bytes 0-${size - 1}/${size}`
+      },
+      body: bytes,
+      cache: "no-store"
+    });
+    if (!putRes.ok) return { ok: false, reason: "graph-error", status: putRes.status };
+    const item = (await putRes.json()) as DriveItem;
+    return { ok: true, data: { name: item.name, url: item.webUrl } };
+  } catch {
+    return { ok: false, reason: "network-error" };
+  }
 }

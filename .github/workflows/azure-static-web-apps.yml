@@ -1,0 +1,33 @@
+name: Azure Static Web Apps CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+jobs:
+  build_and_deploy_job:
+    runs-on: ubuntu-latest
+    name: Build and Deploy Job
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }} # Used for PR comments
+          action: "upload"
+          app_location: "/" # App source code path
+          api_location: "" # Next.js app routes are part of the app build
+          output_location: "" # Let SWA detect and build Next.js hybrid output
+
+# Notes:
+# - After creating the Static Web App in Azure Portal, copy the deployment token
+#   and add it to your GitHub repo secrets as AZURE_STATIC_WEB_APPS_API_TOKEN.
+# - Configure environment variables / secrets in the Static Web App resource
+#   under Configuration -> Secrets and in GitHub Actions as needed.
+# - If your SWA environment does not support Next.js 15 server features yet,
+#   you may need to move server routes to a separate Azure Functions project
+#   (api/) and set api_location accordingly.

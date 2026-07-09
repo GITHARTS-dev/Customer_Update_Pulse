@@ -30,7 +30,7 @@ export function AttentionBand({ items, ceoLog }: AttentionBandProps) {
   return (
     <section className="card px-6 py-5 h-full flex flex-col">
       <div className="flex items-baseline justify-between">
-        <h3 className="font-serif text-xl text-ink-900">Needs you</h3>
+        <h3 className="font-serif text-xl text-ink-900">Key Discussion Points</h3>
         <span className="text-[11px] text-ink-400">
           {openItems.length} open
           {handledCount > 0 && ` · ${handledCount} handled`}
@@ -40,8 +40,8 @@ export function AttentionBand({ items, ceoLog }: AttentionBandProps) {
       {groups.length === 0 ? (
         <p className="mt-3 text-sm text-ink-500">
           {handledCount > 0
-            ? "All caught up. Nice work."
-            : "Nothing flagged for you this week. Enjoy the quiet."}
+            ? "You have looked at everything this week."
+            : "Nothing needs a decision from you this week."}
         </p>
       ) : (
         <div className="mt-3 flex-1 overflow-y-auto -mr-2 pr-2 space-y-3">

@@ -4,6 +4,10 @@ import { Sidebar } from "@/components/Sidebar";
 import { BabyElephant } from "@/components/BabyElephant";
 import { SunRays } from "@/components/SunRays";
 import { ActionButtons } from "@/components/ActionButtons";
+import { FileViewedButton } from "@/components/FileViewedButton";
+import { NoteToLead } from "@/components/NoteToLead";
+import { VibeTrajectory } from "@/components/VibeTrajectory";
+import { JiraCard } from "@/components/JiraCard";
 import { ProgrammeViewTracker } from "@/components/ProgrammeViewTracker";
 import { PROGRAMMES, PROGRAMMES_BY_ID } from "@/lib/programmes";
 import {
@@ -18,7 +22,6 @@ import {
 import { readAllSubmissions } from "@/lib/store";
 import { readCeoLog } from "@/lib/ceo-store";
 import { readProgrammeHistory } from "@/lib/history-store";
-import { TrendCard, type TrendPoint } from "@/components/TrendCard";
 import { VIBE_LABEL, type SignalKind } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -41,22 +44,15 @@ export default async function ProgrammePage({ params }: PageProps) {
   const { id } = await params;
   const programme = PROGRAMMES_BY_ID[id];
   if (!programme) return notFound();
-  const [submissionsByProgramme, ceoLog, programmeHistory] = await Promise.all([
+  const [submissionsByProgramme, ceoLog, history] = await Promise.all([
     readAllSubmissions(),
     readCeoLog(),
-    readProgrammeHistory(id)
+    readProgrammeHistory(programme.id)
   ]);
 
-  const trendPoints: TrendPoint[] = programmeHistory
-    .filter((s) => s.total > 0)
-    .map((s) => ({
-      label: `W${s.weekNumber}`,
-      value: s.completionPct,
-      color: VIBE_COLOR[safeVibe(s.vibe)],
-      detail: `${s.done}/${s.total} tickets · ${VIBE_LABEL[safeVibe(s.vibe)]}`
-    }));
   const submission = submissionsByProgramme[programme.id];
   const priorViewedAt = ceoLog.views[programme.id];
+  const ceoNote = ceoLog.notes[programme.id];
 
   if (!submission) {
     return (
@@ -105,6 +101,7 @@ export default async function ProgrammePage({ params }: PageProps) {
   const tone = VIBE_TONE[vibe];
   const narrativeParts = parseBold(submission.aiNarrative);
   const signals = submission.signals ?? [];
+  const attachments = submission.attachments ?? [];
 
   return (
     <div className="flex flex-col lg:flex-row min-h-screen">
@@ -153,18 +150,6 @@ export default async function ProgrammePage({ params }: PageProps) {
                 >
                   {VIBE_LABEL[vibe]}
                 </span>
-                {submission.jira.total > 0 && (
-                  <>
-                    <span className="text-cream/30">·</span>
-                    <span>
-                      {Math.max(
-                        0,
-                        Math.min(100, submission.jira.completionPct)
-                      )}
-                      % complete
-                    </span>
-                  </>
-                )}
                 <span className="text-cream/30">·</span>
                 <span>
                   Updated {relativeTime(submission.submittedAt)}
@@ -226,13 +211,13 @@ export default async function ProgrammePage({ params }: PageProps) {
               ”
             </blockquote>
             <p className="mt-3 text-[11px] text-ink-400">
-              Written by Claude from {submission.submittedBy}'s check-in and live Jira.
+              Written by Claude from this week's check-in.
             </p>
           </section>
 
           <section className="card px-5 sm:px-6 py-5">
             <h3 className="font-serif text-lg text-ink-900 mb-3">Signals this week</h3>
-            {signals.length === 0 ? (
+            {signals.length === 0 && attachments.length === 0 ? (
               <p className="text-sm text-ink-400">No signals flagged.</p>
             ) : (
               (() => {
@@ -298,6 +283,97 @@ export default async function ProgrammePage({ params }: PageProps) {
                 );
               })()
             )}
+            {attachments.length > 0 && (
+              <div className={signals.length > 0 ? "mt-4 pt-4 border-t border-sand-200" : ""}>
+                <p className="text-[9px] tracking-[0.14em] uppercase text-ink-400 mb-2">
+                  Shared by the lead
+                </p>
+                <ul className="space-y-1.5">
+                  {attachments.map((a) => {
+                    const fileKey = actionKey("file", programme.id, a.url);
+                    const viewed = ceoLog.actions[fileKey] !== undefined;
+                    // Opening the SharePoint webUrl shows the file in SharePoint's
+                    // in-browser viewer — no download. The download link nudges
+                    // SharePoint to send the bytes, only when she actually wants them.
+                    const downloadUrl = `${a.url}${a.url.includes("?") ? "&" : "?"}download=1`;
+                    return (
+                      <li
+                        key={a.url}
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-sand-50 border border-sand-200"
+                      >
+                        <a
+                          href={a.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group flex items-center gap-2 text-sm text-ink-800 min-w-0 flex-1 hover:text-coral"
+                          title="View this file"
+                        >
+                          <svg
+                            viewBox="0 0 16 16"
+                            className="w-3.5 h-3.5 shrink-0 text-ink-400 group-hover:text-coral"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.4"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M9 1.5H4.5A1.5 1.5 0 0 0 3 3v10a1.5 1.5 0 0 0 1.5 1.5h7A1.5 1.5 0 0 0 13 13V5.5L9 1.5Z" />
+                            <path d="M9 1.5V5.5H13" />
+                          </svg>
+                          <span className="truncate group-hover:underline">{a.name}</span>
+                        </a>
+                        <a
+                          href={a.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 inline-flex items-center gap-1 text-[11px] font-medium text-coral hover:underline"
+                          title="View in SharePoint"
+                        >
+                          <svg
+                            viewBox="0 0 16 16"
+                            className="w-3.5 h-3.5"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8Z" />
+                            <circle cx="8" cy="8" r="2" />
+                          </svg>
+                          View
+                        </a>
+                        <a
+                          href={downloadUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 inline-flex items-center gap-1 text-[11px] font-medium text-ink-500 hover:text-coral"
+                          title="Download this file"
+                        >
+                          <svg
+                            viewBox="0 0 16 16"
+                            className="w-3.5 h-3.5"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M8 1.5v9" />
+                            <path d="M4.5 7 8 10.5 11.5 7" />
+                            <path d="M2.5 13.5h11" />
+                          </svg>
+                        </a>
+                        <FileViewedButton actionKey={fileKey} initialViewed={viewed} />
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
             {submission.nextStep && (
               <div className="mt-4 pt-4 border-t border-sand-200">
                 <p className="text-[9px] tracking-[0.14em] uppercase text-ink-400 mb-1">
@@ -307,108 +383,40 @@ export default async function ProgrammePage({ params }: PageProps) {
               </div>
             )}
           </section>
+
+          <NoteToLead
+            programmeId={programme.id}
+            initialText={ceoNote?.text ?? ""}
+          />
           </div>
 
-          {/* Right column: Jira + trend + people, stacked to their own height */}
+          {/* Right column: how it's trended, then people */}
           <div className="lg:col-span-2 flex flex-col gap-4">
-            <section className="card px-5 py-5">
-              <div className="flex items-baseline justify-between mb-3">
-                <h3 className="font-serif text-lg text-ink-900">Jira</h3>
-                <span className="text-[10px] text-ink-400">{programme.jiraProjectKey}</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <JiraStat label="Done" value={submission.jira.done} dot="#3BA46A" />
-                <JiraStat label="Doing" value={submission.jira.inProgress} dot="#6C47E8" />
-                <JiraStat label="To do" value={submission.jira.todo} dot="#D0CBE2" />
-              </div>
-              <div className="mt-4">
-                <div className="flex items-center justify-between text-[11px] text-ink-500">
-                  <span>Progress</span>
-                  <span
-                    className="stat-num text-ink-800"
-                    title={submission.jira.total === 0 ? "No Jira data yet" : undefined}
-                  >
-                    {submission.jira.total > 0
-                      ? `${Math.max(0, Math.min(100, submission.jira.completionPct))}%`
-                      : "—"}
-                  </span>
-                </div>
-                <div className="mt-1.5 h-1.5 rounded-full bg-sand-200 overflow-hidden">
-                  <div
-                    className="h-full rounded-full"
-                    style={{
-                      width: `${
-                        submission.jira.total > 0
-                          ? Math.max(0, Math.min(100, submission.jira.completionPct))
-                          : 0
-                      }%`,
-                      backgroundColor:
-                        submission.jira.total > 0 ? VIBE_COLOR[vibe] : "#D0CBE2"
-                    }}
-                  />
-                </div>
-              </div>
-              {submission.jira.stalledNotes.length > 0 && (
-                <div className="mt-4 pt-3 border-t border-sand-200">
-                  <p className="text-[9px] tracking-[0.14em] uppercase text-ink-400 mb-1.5">
-                    Stalled
-                  </p>
-                  <ul className="space-y-0.5">
-                    {submission.jira.stalledNotes.map((s, i) => (
-                      <li key={i} className="text-[11px] text-ink-700">
-                        {s}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </section>
+            <VibeTrajectory history={history} currentVibe={vibe} />
 
-            <TrendCard
-              title="Completion trend"
-              points={trendPoints}
-              suffix="%"
-              emptyMessage="No Jira data recorded yet."
-              helpText="Jira completion for this programme, week by week."
-            />
+            {/* Jira card only when the board actually has tickets; a programme
+                with no Jira data gets no empty shell. */}
+            {submission.jira.total > 0 && <JiraCard snapshot={submission.jira} />}
+
             <section className="card px-5 py-5">
             <h3 className="font-serif text-lg text-ink-900 mb-3">Key people</h3>
             {submission.people.length === 0 ? (
               <p className="text-sm text-ink-400">No people flagged.</p>
             ) : (
               <ul className="space-y-2">
-                {submission.people.map((p) => {
-                  const sig = {
-                    warm: { bg: "#E1F0E7", dot: "#3BA46A", label: "warm" },
-                    neutral: { bg: "#ECEAF7", dot: "#948FAB", label: "steady" },
-                    watch: { bg: "#F8E7CC", dot: "#E8A020", label: "watch" }
-                  }[p.signal];
-                  return (
-                    <li
-                      key={p.name}
-                      className="px-3 py-2 rounded-lg bg-sand-50 border border-sand-200"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-medium text-ink-900 truncate">
-                          {p.name}
-                        </span>
-                        <span
-                          className="pill text-[9px] py-0.5 px-1.5 shrink-0"
-                          style={{ backgroundColor: sig.bg, color: sig.dot }}
-                        >
-                          <span
-                            className="w-1 h-1 rounded-full"
-                            style={{ backgroundColor: sig.dot }}
-                          />
-                          {sig.label}
-                        </span>
-                      </div>
-                      {p.note && (
-                        <p className="text-[11px] text-ink-500 mt-0.5">{p.note}</p>
-                      )}
-                    </li>
-                  );
-                })}
+                {submission.people.map((p) => (
+                  <li
+                    key={p.name}
+                    className="px-3 py-2 rounded-lg bg-sand-50 border border-sand-200"
+                  >
+                    <span className="text-sm font-medium text-ink-900 block truncate">
+                      {p.name}
+                    </span>
+                    {p.note && (
+                      <p className="text-[11px] text-ink-500 mt-0.5">{p.note}</p>
+                    )}
+                  </li>
+                ))}
               </ul>
             )}
             </section>
@@ -426,18 +434,6 @@ export default async function ProgrammePage({ params }: PageProps) {
           </section>
         )}
       </main>
-    </div>
-  );
-}
-
-function JiraStat({ label, value, dot }: { label: string; value: number; dot: string }) {
-  return (
-    <div className="px-2 py-2.5 rounded-lg bg-sand-50 border border-sand-200">
-      <div className="flex items-center justify-center gap-1.5">
-        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: dot }} />
-        <span className="text-[10px] uppercase tracking-wider text-ink-400">{label}</span>
-      </div>
-      <div className="stat-num text-xl text-ink-900 mt-1">{value}</div>
     </div>
   );
 }

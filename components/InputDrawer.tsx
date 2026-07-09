@@ -5,8 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BabyElephant } from "@/components/BabyElephant";
 import { PROGRAMMES } from "@/lib/programmes";
-import { VIBE_LABEL, type PulseSubmission, type Vibe } from "@/lib/types";
-import { VIBE_COLOR, actionKey } from "@/lib/helpers";
+import { VIBE_LABEL, type Attachment, type PulseSubmission, type Vibe } from "@/lib/types";
+import { VIBE_COLOR, actionKey, relativeTime } from "@/lib/helpers";
 import type { ActionStatus, CeoLog } from "@/lib/ceo-store";
 
 interface CeoTouch {
@@ -94,6 +94,16 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  // New files picked this session, uploaded on submit. `dragActive` styles the drop-zone.
+  const [files, setFiles] = useState<File[]>([]);
+  const [dragActive, setDragActive] = useState(false);
+  // Files already attached for this week that the lead chooses to KEEP. Starts
+  // as everything currently attached; removing one here drops it on submit.
+  const [retained, setRetained] = useState<Attachment[]>([]);
+  // The CEO's side of the conversation, surfaced to the lead on their check-in.
+  const [ceoNote, setCeoNote] = useState<string>("");
+  const [ceoViewedAt, setCeoViewedAt] = useState<string | null>(null);
 
   const programme =
     PROGRAMMES.find((p) => p.id === programmeId) ?? PROGRAMMES[0];
@@ -104,6 +114,12 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
       const t = setTimeout(() => {
         setSubmitted(false);
         setError(null);
+        setWarnings([]);
+        setFiles([]);
+        setDragActive(false);
+        setRetained([]);
+        setCeoNote("");
+        setCeoViewedAt(null);
       }, 300);
       return () => clearTimeout(t);
     }
@@ -115,6 +131,10 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setWarnings([]);
+    // Files are picked per-programme in the drawer; switching programme clears
+    // the picker so one programme's files can't ride along with another.
+    setFiles([]);
     (async () => {
       try {
         const [subRes, logRes] = await Promise.all([
@@ -122,9 +142,15 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
           fetch(`/api/ceo-log`)
         ]);
         const data: PulseSubmission | null = await subRes.json();
-        const log: CeoLog = logRes.ok ? await logRes.json() : { actions: {}, views: {} };
+        const log: CeoLog = logRes.ok
+          ? await logRes.json()
+          : { actions: {}, views: {}, notes: {} };
         if (cancelled) return;
         setExisting(data);
+        // The CEO's note + when she last opened this programme, so the lead sees
+        // any reply and knows she's been looking.
+        setCeoNote(log.notes?.[programmeId]?.text ?? "");
+        setCeoViewedAt(log.views?.[programmeId] ?? null);
         if (data) {
           setVibe(data.vibe);
           setVibeTouched(true);
@@ -136,6 +162,8 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
           setOpenTopics(tt);
           setNoDecisions(tt.length === 0);
           setFreeText(data.leadFreeText ?? "");
+          // Only this week's files are editable; older weeks belong to their own rows.
+          setRetained(isThisWeek(data.submittedAt) ? data.attachments ?? [] : []);
 
           const touches: CeoTouch[] = [];
           for (const topic of data.openTopics ?? []) {
@@ -157,6 +185,7 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
           setOpenTopics("");
           setNoDecisions(false);
           setFreeText("");
+          setRetained([]);
           setCeoTouches([]);
         }
       } catch (err) {
@@ -182,12 +211,59 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
   const allCovered = sections.every((s) => s.covered) && (accountable || programme.lead).trim().length > 0;
   const missing = sections.filter((s) => !s.covered).map((s) => s.label);
 
+  // Merge newly picked/dropped files, skipping exact duplicates (same name +
+  // size) so re-picking doesn't pile up copies.
+  function addFiles(picked: File[]) {
+    if (picked.length === 0) return;
+    const keyOf = (f: File) => `${f.name}:${f.size}`;
+    setFiles((prev) => {
+      const seen = new Set(prev.map(keyOf));
+      const merged = [...prev];
+      for (const f of picked) {
+        const k = keyOf(f);
+        if (!seen.has(k)) {
+          seen.add(k);
+          merged.push(f);
+        }
+      }
+      return merged;
+    });
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragActive(false);
+    if (submitting) return;
+    addFiles(Array.from(e.dataTransfer.files ?? []));
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!allCovered) return;
     setSubmitting(true);
     setError(null);
+    setWarnings([]);
     try {
+      // Upload any picked files first, so their URLs can ride along with the
+      // check-in. Files are stored as-is for Sreema to open; Claude never
+      // reads them.
+      let uploaded: Attachment[] = [];
+      const uploadWarnings: string[] = [];
+      if (files.length > 0) {
+        const fd = new FormData();
+        fd.set("programmeId", programmeId);
+        files.forEach((f) => fd.append("files", f));
+        const uRes = await fetch("/api/attachments", { method: "POST", body: fd });
+        const uBody = await uRes.json().catch(() => ({}));
+        if (!uRes.ok) {
+          throw new Error(uBody.error || `File upload failed (${uRes.status})`);
+        }
+        uploaded = uBody.uploaded ?? [];
+        for (const f of uBody.failed ?? []) {
+          uploadWarnings.push(`Could not upload ${f.name} (${f.error})`);
+        }
+      }
+
       const res = await fetch("/api/submissions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -200,7 +276,10 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
               vibe,
               peopleNote: noPeople ? "" : peopleNote,
               openTopics: noDecisions ? "" : openTopics,
-              leadFreeText: freeText
+              leadFreeText: freeText,
+              // Kept existing files + this session's uploads = the full set for
+              // this week. Anything the lead removed above is simply absent here.
+              attachments: [...retained, ...uploaded]
             }
           ]
         })
@@ -209,6 +288,7 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `Server returned ${res.status}`);
       }
+      setWarnings(uploadWarnings);
       setSubmitted(true);
       router.refresh();
     } catch (err) {
@@ -220,6 +300,12 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
 
   const editingThisWeek = isThisWeek(existing?.submittedAt);
   const editingOld = existing && !editingThisWeek;
+  // Whether Sreema has opened this programme since the lead's last check-in.
+  const ceoHasViewed = Boolean(
+    ceoViewedAt &&
+      existing?.submittedAt &&
+      new Date(ceoViewedAt) >= new Date(existing.submittedAt)
+  );
 
   return (
     <>
@@ -256,7 +342,13 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
               vibe={vibe}
               programmeName={programme.name}
               programmeId={programmeId}
-              onAnother={() => { setSubmitted(false); setExisting(null); }}
+              warnings={warnings}
+              onAnother={() => {
+                setSubmitted(false);
+                setExisting(null);
+                setFiles([]);
+                setWarnings([]);
+              }}
               onClose={onClose}
             />
           ) : (
@@ -268,6 +360,27 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
               )}
 
               {ceoTouches.length > 0 && <CeoTouchesBanner touches={ceoTouches} />}
+
+              {ceoNote.trim().length > 0 && (
+                <div className="px-4 py-3 rounded-lg bg-[#ECEAF7] border border-[#D0CBE2] flex items-start gap-3">
+                  <span className="leading-none">✉</span>
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-[0.14em] text-[#6C6689] mb-0.5">
+                      A note from Sreema
+                    </p>
+                    <p className="text-sm text-ink-800 whitespace-pre-wrap break-words">
+                      {ceoNote}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {ceoHasViewed && ceoViewedAt && (
+                <p className="text-[11px] text-ink-500 flex items-center gap-1.5 px-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-leaf shrink-0" />
+                  Sreema viewed your last check-in {relativeTime(ceoViewedAt)}.
+                </p>
+              )}
 
               {editingThisWeek && (
                 <div className="px-4 py-3 rounded-lg bg-[#F8E7CC] border border-[#E8C685] text-[#7A4A0E] text-sm flex items-start gap-3">
@@ -398,6 +511,119 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
                 )}
               </SectionCard>
 
+              <section className="card px-5 py-4">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-[10px] uppercase tracking-[0.14em] text-ink-400">
+                    Files &amp; folders for Sreema (optional)
+                  </label>
+                  <span className="text-[9px] text-ink-400">she can download these</span>
+                </div>
+                <p className="text-[11px] text-ink-500 mb-3">
+                  Attach anything worth a look — a PDF, a spreadsheet, a deck. Got a
+                  whole folder? Zip it and drop it in. Sreema downloads these
+                  directly; they are not read or summarised by AI.
+                </p>
+
+                {retained.length > 0 && (
+                  <ul className="mb-2 space-y-1">
+                    {retained.map((a) => (
+                      <li key={a.url} className="flex items-center gap-2 text-[12px] text-ink-700">
+                        <FileIcon />
+                        <a
+                          href={a.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="truncate hover:text-coral hover:underline"
+                          title="View this file"
+                        >
+                          {a.name}
+                        </a>
+                        <span className="text-[10px] text-ink-400 shrink-0">already attached</span>
+                        <button
+                          type="button"
+                          onClick={() => setRetained((prev) => prev.filter((x) => x.url !== a.url))}
+                          className="ml-auto text-ink-400 hover:text-crimson text-sm leading-none shrink-0"
+                          aria-label={`Remove ${a.name}`}
+                          title="Remove on submit"
+                        >
+                          ×
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {files.length > 0 && (
+                  <ul className="mb-3 space-y-1">
+                    {files.map((f, i) => (
+                      <li key={`${f.name}-${i}`} className="flex items-center gap-2 text-[12px] text-ink-800">
+                        <FileIcon />
+                        <span className="truncate">{f.name}</span>
+                        <span className="text-[10px] text-ink-400 shrink-0">
+                          {(f.size / 1024 / 1024).toFixed(f.size < 1024 * 1024 ? 2 : 1)} MB
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                          className="ml-auto text-ink-400 hover:text-crimson text-sm leading-none shrink-0"
+                          aria-label={`Remove ${f.name}`}
+                        >
+                          ×
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <label
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (!submitting) setDragActive(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    setDragActive(false);
+                  }}
+                  onDrop={handleDrop}
+                  className={`flex flex-col items-center justify-center gap-1.5 px-4 py-6 rounded-xl border-2 border-dashed cursor-pointer text-center transition ${
+                    dragActive
+                      ? "border-coral bg-coral/5"
+                      : "border-sand-300 bg-sand-50 hover:border-coral/50 hover:bg-coral/[0.02]"
+                  }`}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="w-7 h-7 text-coral"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 16V4" />
+                    <path d="M7 9l5-5 5 5" />
+                    <path d="M20 16v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2" />
+                  </svg>
+                  <span className="text-sm font-medium text-ink-800">
+                    Drag files here, or <span className="text-coral">browse</span>
+                  </span>
+                  <span className="text-[10px] text-ink-400">
+                    Any format, up to 25 MB each. Zip a folder to send it whole.
+                  </span>
+                  <input
+                    type="file"
+                    multiple
+                    className="hidden"
+                    disabled={submitting}
+                    onChange={(e) => {
+                      addFiles(Array.from(e.target.files ?? []));
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              </section>
+
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 pb-2">
                 <div className="text-[11px] text-ink-500 min-w-0">
                   {allCovered ? (
@@ -448,11 +674,12 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
 }
 
 function SuccessState({
-  vibe, programmeName, programmeId, onAnother, onClose
+  vibe, programmeName, programmeId, warnings, onAnother, onClose
 }: {
   vibe: Vibe;
   programmeName: string;
   programmeId: string;
+  warnings: string[];
   onAnother: () => void;
   onClose: () => void;
 }) {
@@ -466,6 +693,16 @@ function SuccessState({
         Your check-in for <strong className="text-ink-800">{programmeName}</strong> is in.
         Claude has written the narrative and the CEO view is updated.
       </p>
+      {warnings.length > 0 && (
+        <div className="mt-4 mx-auto max-w-sm px-4 py-3 rounded-lg bg-[#F8E7CC] border border-[#E8C685] text-[#7A4A0E] text-sm text-left">
+          <p className="font-medium mb-1">Some files did not upload:</p>
+          <ul className="list-disc list-inside space-y-0.5">
+            {warnings.map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="mt-6 flex justify-center gap-2.5 flex-wrap">
         <button
           onClick={onAnother}
@@ -535,6 +772,24 @@ function SkipCheckbox({
       />
       {label}
     </label>
+  );
+}
+
+function FileIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className="w-3.5 h-3.5 shrink-0 text-ink-400"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9 1.5H4.5A1.5 1.5 0 0 0 3 3v10a1.5 1.5 0 0 0 1.5 1.5h7A1.5 1.5 0 0 0 13 13V5.5L9 1.5Z" />
+      <path d="M9 1.5V5.5H13" />
+    </svg>
   );
 }
 

@@ -1,13 +1,9 @@
 import "server-only";
-import type {
-  OpenTopic,
-  PersonSignal,
-  PulseSubmission,
-  Signal,
-  Vibe
-} from "./types";
+import { cache } from "react";
+import type { OpenTopic, PersonSignal, PulseSubmission } from "./types";
 import { PROGRAMMES_BY_ID } from "./programmes";
 import { safeVibe } from "./helpers";
+import { buildNameList, redactNames } from "./redact";
 import {
   fetchSharePointListItems,
   updateSharePointListItemFields,
@@ -90,29 +86,22 @@ function asNumber(v: unknown): number {
 }
 
 /**
- * Reconstructs a submission from a row. Prefers the exact JSON we stored in
- * AIGeneratedJSON; falls back to the individual columns for rows created
- * outside this app (e.g. manual or other tools).
+ * Reconstructs a submission from a row. The plain columns (Vibe, Accountable,
+ * ProgrammeUpdates, PeopleSignals, OpenDecisions, ...) are always the source
+ * of truth — editing one directly in SharePoint, or deleting the row, takes
+ * effect on the very next read, since reads always hit SharePoint live.
+ *
+ * AIGeneratedJSON supplies only the handful of fields that have no column of
+ * their own (essence, signals, next step, the full Jira breakdown) — and only
+ * when it still matches this row's identity, so a stale blob left over from
+ * before a manual edit can't override what's actually in the columns now.
  */
 function rowToSubmission(fields: Record<string, unknown>): PulseSubmission | null {
   const programmeId = asString(fields[COL.programmeId]).trim();
   if (!programmeId || !PROGRAMMES_BY_ID[programmeId]) return null;
 
-  const rawJson = asString(fields[COL.aiJson]).trim();
-  if (rawJson) {
-    try {
-      const parsed = JSON.parse(rawJson) as PulseSubmission;
-      if (parsed && parsed.programmeId === programmeId && parsed.aiNarrative) {
-        parsed.vibe = safeVibe(parsed.vibe);
-        return parsed;
-      }
-    } catch {
-      // Not our JSON format (e.g. a fenced-markdown row) — fall through.
-    }
-  }
-
-  // Fallback: build a best-effort submission from the plain columns.
   const completionPct = asNumber(fields[COL.completionPct]);
+  const weekNumber = asNumber(fields[COL.weekNumber]);
   const people: PersonSignal[] = asString(fields[COL.peopleSignals])
     .split("\n")
     .map((l) => l.trim())
@@ -124,11 +113,11 @@ function rowToSubmission(fields: Record<string, unknown>): PulseSubmission | nul
     .filter(Boolean)
     .map((title) => ({ title }));
 
-  return {
+  const sub: PulseSubmission = {
     programmeId,
     submittedBy: asString(fields[COL.submittedBy]) || PROGRAMMES_BY_ID[programmeId].lead,
     accountable: asString(fields[COL.accountable]) || undefined,
-    weekNumber: asNumber(fields[COL.weekNumber]),
+    weekNumber,
     submittedAt: asString(fields[COL.submittedAt]) || new Date().toISOString(),
     vibe: safeVibe(fields[COL.vibe]),
     people,
@@ -137,21 +126,74 @@ function rowToSubmission(fields: Record<string, unknown>): PulseSubmission | nul
     jira: { total: 0, done: 0, inProgress: 0, todo: 0, completionPct, stalledNotes: [] },
     aiNarrative: asString(fields[COL.programmeUpdates]),
     aiEssence: "",
-    signals: [] as Signal[],
-    nextStep: undefined
+    signals: [],
+    nextStep: undefined,
+    attachments: []
   };
+
+  const rawJson = asString(fields[COL.aiJson]).trim();
+  if (rawJson) {
+    try {
+      const parsed = JSON.parse(rawJson) as PulseSubmission;
+      if (parsed && parsed.programmeId === programmeId && parsed.weekNumber === weekNumber) {
+        sub.aiEssence = parsed.aiEssence ?? sub.aiEssence;
+        sub.signals = Array.isArray(parsed.signals) ? parsed.signals : sub.signals;
+        sub.nextStep = parsed.nextStep ?? sub.nextStep;
+        sub.attachments = Array.isArray(parsed.attachments) ? parsed.attachments : sub.attachments;
+        if (parsed.jira) sub.jira = { ...parsed.jira, completionPct };
+      }
+    } catch {
+      // Not valid JSON (e.g. a row created by hand) — the column-derived
+      // submission above is already complete and correct on its own.
+    }
+  }
+
+  // Final guarantee: strip any person's name from everything Claude wrote,
+  // using the names the lead actually flagged. This covers narratives stored
+  // before the "no names" rule, and any occasional slip by the model.
+  const nameList = buildNameList([
+    asString(fields[COL.peopleSignals]),
+    asString(fields[COL.accountable])
+  ]);
+  if (nameList.length > 0) {
+    sub.aiNarrative = redactNames(sub.aiNarrative, nameList);
+    sub.aiEssence = redactNames(sub.aiEssence, nameList);
+    if (sub.nextStep) sub.nextStep = redactNames(sub.nextStep, nameList);
+    sub.signals = (sub.signals ?? []).map((s) => ({
+      ...s,
+      text: redactNames(s.text, nameList)
+    }));
+  }
+
+  return sub;
 }
 
-async function fetchRows(): Promise<SharePointListItem[]> {
+/**
+ * The one live network call this module makes. Wrapped in React's cache() so
+ * that however many times readAllSubmissions() / readAllSubmissionRows() /
+ * writeSubmission() are called within a single request (a page load fetches
+ * both the current state AND the trend history; a multi-programme submit
+ * looks up "previous" once per programme), SharePoint is only actually
+ * fetched once. Without this, a single dashboard load was making 2 full-list
+ * Graph API calls, and a 3-programme submit was making 6+.
+ */
+export const fetchSubmissionsListItems = cache(async (): Promise<SharePointListItem[]> => {
   const res = await fetchSharePointListItems(SITE_ID, LIST_ID);
   if (!res.ok) {
     throw new Error(`SharePoint read failed (${res.reason}${res.status ? " " + res.status : ""})`);
   }
   return res.data.value;
-}
+});
+
+/** The submissions list id + site, so the CEO log can share this same list. */
+export const SUBMISSIONS_SITE_ID = SITE_ID;
+export const SUBMISSIONS_LIST_ID = LIST_ID;
+
+// Internal alias kept for readability at call sites below.
+const fetchRows = fetchSubmissionsListItems;
 
 /** Every submission row mapped, across all weeks (used by the trend history). */
-export async function readAllSubmissionRows(): Promise<PulseSubmission[]> {
+export const readAllSubmissionRows = cache(async (): Promise<PulseSubmission[]> => {
   if (!configured()) return [];
   const rows = await fetchRows();
   const out: PulseSubmission[] = [];
@@ -160,7 +202,7 @@ export async function readAllSubmissionRows(): Promise<PulseSubmission[]> {
     if (sub) out.push(sub);
   }
   return out;
-}
+});
 
 /** Latest submission per programme (the dashboard's "current state"). */
 export async function readAllSubmissions(): Promise<Store> {

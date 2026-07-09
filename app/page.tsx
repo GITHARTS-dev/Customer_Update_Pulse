@@ -3,51 +3,25 @@ import { MoodHero } from "@/components/MoodHero";
 import { KpiStats } from "@/components/KpiStats";
 import { VibeBoard, type BoardEntry } from "@/components/VibeBoard";
 import { AttentionBand } from "@/components/AttentionBand";
-import { TrendCard, type TrendPoint } from "@/components/TrendCard";
 import { PROGRAMMES } from "@/lib/programmes";
 import {
   actionKey,
   emotionalOneLiner,
   freshnessOf,
   greeting,
-  safeVibe,
-  VIBE_COLOR
+  safeVibe
 } from "@/lib/helpers";
 import { readAllSubmissions } from "@/lib/store";
 import { readCeoLog } from "@/lib/ceo-store";
-import { readPortfolioTrend } from "@/lib/history-store";
 import type { PulseSubmission, Vibe } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function PulsePage() {
-  const [submissionsByProgramme, ceoLog, portfolioTrend] = await Promise.all([
+  const [submissionsByProgramme, ceoLog] = await Promise.all([
     readAllSubmissions(),
-    readCeoLog(),
-    readPortfolioTrend()
+    readCeoLog()
   ]);
-
-  const portfolioPoints: TrendPoint[] = portfolioTrend.map((w) => {
-    const pct = Math.round((w.onTrack / w.totalProgrammes) * 100);
-    const color =
-      pct >= 60
-        ? VIBE_COLOR.going_well
-        : pct >= 30
-          ? VIBE_COLOR.watch_it
-          : VIBE_COLOR.stuck;
-    const parts = [
-      `${w.onTrack} on track of ${w.totalProgrammes}`,
-      w.watching > 0 && `${w.watching} watch`,
-      w.stuck > 0 && `${w.stuck} stuck`,
-      w.notYetIn > 0 && `${w.notYetIn} not yet in`
-    ].filter(Boolean);
-    return {
-      label: `W${w.weekNumber}`,
-      value: pct,
-      color,
-      detail: parts.join(" · ")
-    };
-  });
 
   const fresh: PulseSubmission[] = [];
   let stale = 0;
@@ -253,15 +227,8 @@ export default async function PulsePage() {
             </section>
           </div>
 
-          {/* Right rail: the trend, then what needs her */}
+          {/* Right rail: what needs her attention this week */}
           <div className="lg:col-span-2 flex flex-col gap-4">
-            <TrendCard
-              title="On-track trend"
-              points={portfolioPoints}
-              suffix="%"
-              emptyMessage="No check-ins recorded yet."
-              helpText="Share of submitted programmes rated 'going well' each week."
-            />
             <AttentionBand items={attentionItems} ceoLog={ceoLog} />
           </div>
         </div>

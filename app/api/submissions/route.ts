@@ -4,6 +4,7 @@ import { readAllSubmissions, readSubmission, writeSubmission } from "@/lib/store
 import { generateNarratives, type NarrativeInputWithId } from "@/lib/claude";
 import { fetchJiraSnapshot, jiraConfigured } from "@/lib/jira";
 import type {
+  Attachment,
   JiraSnapshot,
   PersonSignal,
   PulseSubmission,
@@ -24,6 +25,8 @@ interface SubmitEntry {
   peopleNote: string;
   openTopics: string;
   leadFreeText: string;
+  /** Files already uploaded via /api/attachments for this programme this session. */
+  attachments?: Attachment[];
 }
 
 interface SubmitBody {
@@ -192,15 +195,14 @@ export async function POST(req: Request) {
   );
 
   const narrativeInputs: NarrativeInputWithId[] = prepared.map(
-    ({ entry, programme, jira }) => ({
+    ({ entry, programme }) => ({
       programmeId: entry.programmeId,
       programmeName: programme.name,
       lead: (entry.accountable ?? "").trim() || programme.lead,
       vibe: entry.vibe,
       peopleNote: entry.peopleNote,
       openTopics: entry.openTopics,
-      leadFreeText: entry.leadFreeText,
-      jira
+      leadFreeText: entry.leadFreeText
     })
   );
 
@@ -227,6 +229,23 @@ export async function POST(req: Request) {
       continue;
     }
 
+    // The client (drawer / input page) sends the authoritative attachment set
+    // for this week — the files it chose to KEEP plus this session's uploads —
+    // so a lead can remove a previously uploaded file simply by leaving it out.
+    // Only when the field is absent entirely (older flat single-programme
+    // callers) do we fall back to preserving the prior same-week files.
+    let attachments: Attachment[];
+    if (entry.attachments !== undefined) {
+      const byUrl = new Map<string, Attachment>();
+      for (const a of entry.attachments) {
+        if (a && a.url) byUrl.set(a.url, { name: a.name, url: a.url });
+      }
+      attachments = Array.from(byUrl.values());
+    } else {
+      attachments =
+        previous && previous.weekNumber === weekNumber ? previous.attachments ?? [] : [];
+    }
+
     const submission: PulseSubmission = {
       programmeId: entry.programmeId,
       submittedBy,
@@ -244,7 +263,8 @@ export async function POST(req: Request) {
       aiNarrative: narrative.narrative,
       aiEssence: narrative.essence,
       signals: narrative.signals,
-      nextStep: narrative.nextStep
+      nextStep: narrative.nextStep,
+      attachments
     };
 
     try {

@@ -99,7 +99,7 @@ export function emotionalOneLiner(
 }
 
 export function actionKey(
-  prefix: "topic" | "signal",
+  prefix: "topic" | "signal" | "file",
   programmeId: string,
   text: string
 ): string {

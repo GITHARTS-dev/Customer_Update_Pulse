@@ -6,8 +6,8 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { BabyElephant } from "@/components/BabyElephant";
 import { PROGRAMMES, PROGRAMMES_BY_ID } from "@/lib/programmes";
-import { VIBE_LABEL, type PulseSubmission, type Vibe } from "@/lib/types";
-import { VIBE_COLOR } from "@/lib/helpers";
+import { VIBE_LABEL, type Attachment, type PulseSubmission, type Vibe } from "@/lib/types";
+import { VIBE_COLOR, relativeTime } from "@/lib/helpers";
 
 const VIBE_HELP: Record<Vibe, string> = {
   going_well: "Energy is up, things are moving, no decisions waiting on the CEO.",
@@ -31,6 +31,10 @@ interface Entry {
   noDecisions: boolean;
   freeText: string;
   existedThisWeek: boolean;
+  /** New files picked this session, uploaded on submit. */
+  files: File[];
+  /** Files already attached for this week (shown read-only when editing). */
+  existingAttachments: Attachment[];
 }
 
 function countLines(raw: string): number {
@@ -71,13 +75,16 @@ function blankEntry(lead: string): Entry {
     openTopics: "",
     noDecisions: false,
     freeText: "",
-    existedThisWeek: false
+    existedThisWeek: false,
+    files: [],
+    existingAttachments: []
   };
 }
 
 function entryFromExisting(s: PulseSubmission, lead: string): Entry {
   const peopleText = peopleSignalsToText(s);
   const topicsText = openTopicsToText(s);
+  const thisWeek = isThisWeek(s.submittedAt);
   return {
     accountable: s.accountable ?? lead,
     vibe: s.vibe,
@@ -87,7 +94,9 @@ function entryFromExisting(s: PulseSubmission, lead: string): Entry {
     openTopics: topicsText,
     noDecisions: topicsText.length === 0,
     freeText: s.leadFreeText ?? "",
-    existedThisWeek: isThisWeek(s.submittedAt)
+    existedThisWeek: thisWeek,
+    files: [],
+    existingAttachments: thisWeek ? s.attachments ?? [] : []
   };
 }
 
@@ -121,6 +130,11 @@ function LeadInputForm() {
   const [existingByProgramme, setExistingByProgramme] = useState<
     Record<string, PulseSubmission>
   >({});
+  const [notesByProgramme, setNotesByProgramme] = useState<
+    Record<string, { text: string; at: string }>
+  >({});
+  // When Sreema last opened each programme — used to tell the lead she's looked.
+  const [viewsByProgramme, setViewsByProgramme] = useState<Record<string, string>>({});
   // Programmes the lead has actively edited this session = the ones to submit.
   const [included, setIncluded] = useState<Set<string>>(new Set());
   const includedRef = useRef<Set<string>>(new Set());
@@ -130,6 +144,7 @@ function LeadInputForm() {
   const [submittedCount, setSubmittedCount] = useState<number | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [dragActive, setDragActive] = useState(false);
 
   const programme = PROGRAMMES_BY_ID[current] ?? PROGRAMMES[0];
 
@@ -147,6 +162,33 @@ function LeadInputForm() {
       })
       .finally(() => {
         if (!cancelled) setLoadingExisting(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load Sreema's notes back to the leads, so each programme shows any reply
+  // waiting for them. This is the CEO side of the conversation.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/ceo-log")
+      .then((r) => (r.ok ? r.json() : { notes: {}, views: {} }))
+      .then(
+        (log: {
+          notes?: Record<string, { text: string; at: string }>;
+          views?: Record<string, string>;
+        }) => {
+          if (cancelled) return;
+          setNotesByProgramme(log?.notes ?? {});
+          setViewsByProgramme(log?.views ?? {});
+        }
+      )
+      .catch(() => {
+        if (!cancelled) {
+          setNotesByProgramme({});
+          setViewsByProgramme({});
+        }
       });
     return () => {
       cancelled = true;
@@ -189,6 +231,30 @@ function LeadInputForm() {
     markTouched(current);
   }
 
+  // Merge newly picked/dropped files into the current programme, skipping exact
+  // duplicates (same name + size) so re-picking doesn't pile up copies.
+  function addFiles(picked: File[]) {
+    if (picked.length === 0) return;
+    const keyOf = (f: File) => `${f.name}:${f.size}`;
+    const seen = new Set(cur.files.map(keyOf));
+    const merged = [...cur.files];
+    for (const f of picked) {
+      const k = keyOf(f);
+      if (!seen.has(k)) {
+        seen.add(k);
+        merged.push(f);
+      }
+    }
+    patchCurrent({ files: merged });
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragActive(false);
+    if (submitting) return;
+    addFiles(Array.from(e.dataTransfer.files ?? []));
+  }
+
   const includedList = PROGRAMMES.filter((p) => included.has(p.id));
   const incompletePid = includedList.filter((p) => !coverageOf(entries[p.id]).all);
   const readyToSubmit = includedList.length > 0 && incompletePid.length === 0;
@@ -208,6 +274,30 @@ function LeadInputForm() {
     setError(null);
     setWarnings([]);
     try {
+      // Upload any picked files first, per programme, so their URLs can ride
+      // along with the check-in. Files are stored as-is for Sreema to open;
+      // Claude never reads them.
+      const uploadWarnings: string[] = [];
+      const attachmentsByProgramme: Record<string, Attachment[]> = {};
+      for (const p of includedList) {
+        const en = entries[p.id];
+        if (en.files.length === 0) continue;
+        const fd = new FormData();
+        fd.set("programmeId", p.id);
+        en.files.forEach((f) => fd.append("files", f));
+        const uRes = await fetch("/api/attachments", { method: "POST", body: fd });
+        const uBody = await uRes.json().catch(() => ({}));
+        if (!uRes.ok) {
+          throw new Error(uBody.error || `File upload failed for ${p.shortName ?? p.name}`);
+        }
+        attachmentsByProgramme[p.id] = uBody.uploaded ?? [];
+        for (const f of uBody.failed ?? []) {
+          uploadWarnings.push(
+            `${p.shortName ?? p.name}: could not upload ${f.name} (${f.error})`
+          );
+        }
+      }
+
       const payloadEntries = includedList.map((p) => {
         const en = entries[p.id];
         return {
@@ -216,7 +306,10 @@ function LeadInputForm() {
           vibe: en.vibe,
           peopleNote: en.noPeople ? "" : en.peopleNote,
           openTopics: en.noDecisions ? "" : en.openTopics,
-          leadFreeText: en.freeText
+          leadFreeText: en.freeText,
+          // Kept existing files + this session's uploads = the authoritative set
+          // for this week; removed files are simply left out.
+          attachments: [...en.existingAttachments, ...(attachmentsByProgramme[p.id] ?? [])]
         };
       });
 
@@ -232,13 +325,10 @@ function LeadInputForm() {
       const saved: PulseSubmission[] = body.saved ?? [];
       const failed: Array<{ programmeId: string; error: string }> = body.failed ?? [];
       setSubmittedCount(saved.length);
-      if (failed.length > 0) {
-        setWarnings(
-          failed.map(
-            (f) => `${PROGRAMMES_BY_ID[f.programmeId]?.name ?? f.programmeId}: ${f.error}`
-          )
-        );
-      }
+      const saveWarnings = failed.map(
+        (f) => `${PROGRAMMES_BY_ID[f.programmeId]?.name ?? f.programmeId}: ${f.error}`
+      );
+      setWarnings([...uploadWarnings, ...saveWarnings]);
       router.refresh();
     } catch (err) {
       setError((err as Error).message);
@@ -392,6 +482,35 @@ function LeadInputForm() {
           </div>
         )}
 
+        {notesByProgramme[current]?.text && (
+          <div className="mb-4 px-4 py-3 rounded-lg bg-[#ECEAF7] border border-[#D0CBE2] flex items-start gap-3">
+            <span className="text-base leading-none">✉</span>
+            <div className="min-w-0">
+              <p className="text-[10px] uppercase tracking-[0.14em] text-[#6C6689] mb-0.5">
+                A note from Sreema
+              </p>
+              <p className="text-sm text-ink-800 whitespace-pre-wrap break-words">
+                {notesByProgramme[current].text}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {(() => {
+          const viewedAt = viewsByProgramme[current];
+          const sub = existingByProgramme[current];
+          const seen =
+            viewedAt &&
+            sub?.submittedAt &&
+            new Date(viewedAt) >= new Date(sub.submittedAt);
+          return seen ? (
+            <p className="mb-4 text-[11px] text-ink-500 flex items-center gap-1.5 px-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-leaf shrink-0" />
+              Sreema viewed your last check-in {relativeTime(viewedAt)}.
+            </p>
+          ) : null;
+        })()}
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <section className="card px-5 py-4">
             <label className="block text-[10px] uppercase tracking-[0.14em] text-ink-400 mb-2">
@@ -459,7 +578,7 @@ function LeadInputForm() {
 
           <SectionCard label="People signals" covered={curCoverage.people}>
             <p className="text-[11px] text-ink-500 mb-2">
-              Anyone leaning in? Anyone cooling? One per line, up to {LINES_MAX}.
+              How is everyone feeling? One per line, up to {LINES_MAX}.
             </p>
             <textarea
               value={cur.peopleNote}
@@ -513,7 +632,7 @@ function LeadInputForm() {
 
           <SectionCard label="In your own words" covered={curCoverage.freetext}>
             <p className="text-[11px] text-ink-500 mb-2">
-              How would you describe the week to Sreema over coffee? A sentence or two.
+              How would you describe the week to Sreema? A sentence or two.
             </p>
             <textarea
               value={cur.freeText}
@@ -530,6 +649,133 @@ function LeadInputForm() {
               </p>
             )}
           </SectionCard>
+
+          <section className="card px-5 py-4">
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-[10px] uppercase tracking-[0.14em] text-ink-400">
+                Files & folders for Sreema (optional)
+              </label>
+              <span className="text-[9px] text-ink-400">she can download these</span>
+            </div>
+            <p className="text-[11px] text-ink-500 mb-3">
+              Attach anything worth a look, a PDF, a spreadsheet, a deck. Got a
+              whole folder? Zip it and drop it in. Sreema downloads these
+              directly. They are not read or summarised by AI.
+            </p>
+
+            {cur.existingAttachments.length > 0 && (
+              <ul className="mb-2 space-y-1">
+                {cur.existingAttachments.map((a) => (
+                  <li
+                    key={a.url}
+                    className="flex items-center gap-2 text-[12px] text-ink-700"
+                  >
+                    <FileIcon />
+                    <a
+                      href={a.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="truncate hover:text-coral hover:underline"
+                      title="View this file"
+                    >
+                      {a.name}
+                    </a>
+                    <span className="text-[10px] text-ink-400 shrink-0">already attached</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        patchCurrent({
+                          existingAttachments: cur.existingAttachments.filter(
+                            (x) => x.url !== a.url
+                          )
+                        })
+                      }
+                      className="ml-auto text-ink-400 hover:text-crimson text-sm leading-none shrink-0"
+                      aria-label={`Remove ${a.name}`}
+                      title="Remove on submit"
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {cur.files.length > 0 && (
+              <ul className="mb-3 space-y-1">
+                {cur.files.map((f, i) => (
+                  <li
+                    key={`${f.name}-${i}`}
+                    className="flex items-center gap-2 text-[12px] text-ink-800"
+                  >
+                    <FileIcon />
+                    <span className="truncate">{f.name}</span>
+                    <span className="text-[10px] text-ink-400 shrink-0">
+                      {(f.size / 1024 / 1024).toFixed(f.size < 1024 * 1024 ? 2 : 1)} MB
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        patchCurrent({ files: cur.files.filter((_, idx) => idx !== i) })
+                      }
+                      className="ml-auto text-ink-400 hover:text-crimson text-sm leading-none shrink-0"
+                      aria-label={`Remove ${f.name}`}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <label
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (!submitting) setDragActive(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setDragActive(false);
+              }}
+              onDrop={handleDrop}
+              className={`flex flex-col items-center justify-center gap-1.5 px-4 py-6 rounded-xl border-2 border-dashed cursor-pointer text-center transition ${
+                dragActive
+                  ? "border-coral bg-coral/5"
+                  : "border-sand-300 bg-sand-50 hover:border-coral/50 hover:bg-coral/[0.02]"
+              }`}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="w-7 h-7 text-coral"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12 16V4" />
+                <path d="M7 9l5-5 5 5" />
+                <path d="M20 16v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2" />
+              </svg>
+              <span className="text-sm font-medium text-ink-800">
+                Drag files here, or <span className="text-coral">browse</span>
+              </span>
+              <span className="text-[10px] text-ink-400">
+                Any format, up to 25 MB each. Zip a folder to send it whole.
+              </span>
+              <input
+                type="file"
+                multiple
+                className="hidden"
+                disabled={submitting}
+                onChange={(e) => {
+                  addFiles(Array.from(e.target.files ?? []));
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          </section>
 
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pt-1 gap-3 sm:gap-4">
             <div className="text-[11px] text-ink-500 min-w-0">
@@ -643,6 +889,24 @@ function SkipCheckbox({
       />
       {label}
     </label>
+  );
+}
+
+function FileIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className="w-3.5 h-3.5 shrink-0 text-ink-400"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9 1.5H4.5A1.5 1.5 0 0 0 3 3v10a1.5 1.5 0 0 0 1.5 1.5h7A1.5 1.5 0 0 0 13 13V5.5L9 1.5Z" />
+      <path d="M9 1.5V5.5H13" />
+    </svg>
   );
 }
 

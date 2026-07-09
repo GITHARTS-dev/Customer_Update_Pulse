@@ -124,12 +124,12 @@ function MoodShelf({ vibe, entries }: { vibe: Vibe; entries: BoardEntry[] }) {
       ) : (
         <ul className="flex-1 min-w-0 flex flex-wrap gap-2.5">
           {entries.map(({ programme, submission, unseen }) => {
-            const pct = Math.max(0, Math.min(100, submission?.jira.completionPct ?? 0));
             return (
               <li key={programme.id} className="w-[172px] shrink-0">
                 <Link
                   href={`/programme/${programme.id}`}
                   className="block rounded-xl bg-cream border border-sand-200 px-3.5 py-2.5 shadow-card hover:shadow-hero hover:-translate-y-0.5 transition-all relative"
+                  style={{ borderLeft: `3px solid ${VIBE_COLOR[vibe]}` }}
                 >
                   {unseen && (
                     <span
@@ -139,14 +139,9 @@ function MoodShelf({ vibe, entries }: { vibe: Vibe; entries: BoardEntry[] }) {
                       !
                     </span>
                   )}
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-[13px] font-medium text-ink-900 truncate">
-                      {programme.shortName ?? programme.name}
-                    </span>
-                    <span className="stat-num text-[12.5px] text-ink-500 shrink-0">
-                      {submission?.jira.total ? `${pct}%` : "—"}
-                    </span>
-                  </div>
+                  <span className="text-[13px] font-medium text-ink-900 truncate block">
+                    {programme.shortName ?? programme.name}
+                  </span>
                   <p className="text-[10.5px] text-ink-400 truncate mt-0.5">
                     {submission?.accountable ?? programme.lead}
                   </p>
@@ -155,12 +150,6 @@ function MoodShelf({ vibe, entries }: { vibe: Vibe; entries: BoardEntry[] }) {
                       incl. {programme.subProgrammes.join(", ")}
                     </p>
                   )}
-                  <div className="mt-1.5 h-[3px] rounded-full bg-sand-200 overflow-hidden">
-                    <div
-                      className="h-full rounded-full"
-                      style={{ width: `${pct}%`, backgroundColor: VIBE_COLOR[vibe] }}
-                    />
-                  </div>
                 </Link>
               </li>
             );

@@ -44,6 +44,12 @@ export interface Signal {
   text: string;
 }
 
+/** A file the lead uploaded for this programme, shown to the CEO as a link. */
+export interface Attachment {
+  name: string;
+  url: string;
+}
+
 export interface PulseSubmission {
   programmeId: string;
   submittedBy: string;
@@ -63,6 +69,9 @@ export interface PulseSubmission {
   aiEssence: string;
   signals?: Signal[];
   nextStep?: string;
+
+  /** Files the lead uploaded this week, for the CEO to open directly. */
+  attachments?: Attachment[];
 }
 
 export const VIBE_LABEL: Record<Vibe, string> = {
