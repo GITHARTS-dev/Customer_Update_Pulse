@@ -10,5 +10,8 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ["/((?!api/auth|sign-in|_next/static|_next/image|favicon.ico|logos).*)"]
+  // .swa is excluded so Azure Static Web Apps' post-deploy health check
+  // (a GET to /.swa/health.html) gets a real response instead of a redirect
+  // to /sign-in, which Azure would read as a failed deployment.
+  matcher: ["/((?!api/auth|sign-in|_next/static|_next/image|favicon\\.ico|logos|\\.swa).*)"]
 };
