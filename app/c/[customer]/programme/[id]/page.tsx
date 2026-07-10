@@ -210,7 +210,10 @@ async function ProgrammeBody({
           </section>
 
           <section className="card px-5 sm:px-6 py-5">
-            <h3 className="font-serif text-lg text-ink-900 mb-3">Signals this week</h3>
+            <h3 className="font-serif text-lg text-ink-900 mb-1">Signals this week</h3>
+            <p className="text-[11px] text-ink-400 mb-3">
+              Claude's read of the whole check-in — wins, watch-outs, and asks.
+            </p>
             {signals.length === 0 && attachments.length === 0 ? (
               <p className="text-sm text-ink-400">No signals flagged.</p>
             ) : (
@@ -371,7 +374,8 @@ async function ProgrammeBody({
             <section className="card px-5 sm:px-6 py-5">
               <h3 className="font-serif text-lg text-ink-900 mb-1">Discussion points</h3>
               <p className="text-[11px] text-ink-400 mb-3">
-                Mark each as you handle it — the pulse board reflects the same.
+                The lead's open decisions, in their words. Mark each as you handle
+                it — the pulse board reflects the same.
               </p>
               <ul className="space-y-2.5">
                 {submission.openTopics.map((topic, i) => {

@@ -6,13 +6,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // Keeps the deployed app under Azure Static Web Apps' 250 MB app-size cap
-  // by tracing only the files actually needed at runtime (no full node_modules).
-  output: "standalone",
-  // Without this, Next infers the file-tracing root by walking up for a
-  // lockfile and can land on the drive root (D:\) on this machine, so its
-  // watcher/tracer then scans D:\pagefile.sys, D:\System Volume Information,
-  // etc. and throws EINVAL. Pinning it to the project folder stops that scan.
+  // NOTE: do NOT set `output: "standalone"` here. Azure Static Web Apps' hybrid
+  // Next.js support builds the standard `.next` output and wires the server to
+  // its own managed backend, tracing only the runtime deps itself. Setting
+  // "standalone" makes Next emit a self-contained server SWA doesn't run, so no
+  // SSR handler serves requests and every dynamic route (including "/") 404s.
+  //
+  // Pin the file-tracing root to this folder so Next's tracer doesn't walk up
+  // to the drive root (on Windows it would scan D:\pagefile.sys etc. and throw
+  // EINVAL); harmless and correct on the Linux CI runner too.
   outputFileTracingRoot: __dirname
 };
 

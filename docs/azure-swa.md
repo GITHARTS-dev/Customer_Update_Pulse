@@ -15,13 +15,18 @@ lives in SharePoint lists via Microsoft Graph, not in local JSON files.
   and per-request auth. SWA's **hybrid Next.js support** (currently in
   **public preview** at Microsoft) runs this on a managed backend automatically
   included on every plan, including Free.
-- **`output: "standalone"`** in `next.config.mjs` keeps the deployed app under
-  SWA Free's 250 MB app-size cap. Verified locally: the standalone build is
-  **~53 MB**; the full `node_modules` is ~397 MB — without standalone, this app
-  would not fit. `scripts/copy-standalone-assets.mjs` runs after every build to
-  copy `.next/static` and `public/` back in (Next's standalone output omits
-  them by design, expecting a CDN in front — SWA needs them alongside the
-  server).
+- **Do NOT set `output: "standalone"`.** SWA's hybrid Next.js build produces
+  the standard `.next` output and wires the server to its own managed backend,
+  tracing only the runtime dependencies itself (so the ~397 MB `node_modules`
+  is never uploaded wholesale — the 250 MB app cap applies to the static
+  assets, which are small). Setting `output: "standalone"` makes `next build`
+  emit a self-contained server SWA does **not** run, so no SSR handler serves
+  requests and every dynamic route (including `/`) returns **404** even though
+  the deploy "succeeds". This bit us once — leave it off.
+- **One deploy workflow only.** Azure generates
+  `.github/workflows/azure-static-web-apps-<name>.yml` with the resource's
+  deployment-token secret. Keep exactly that one — a second workflow firing on
+  the same `push` races and clobbers the first.
 - **Middleware excludes `/.swa/*`.** SWA validates a deployment by requesting
   `/.swa/health.html`. Our middleware gates every route behind sign-in, so
   without this exclusion the health check gets redirected to `/sign-in` and
