@@ -4,23 +4,25 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { signOut } from "next-auth/react";
-import { PROGRAMMES } from "@/lib/programmes";
+import { CUSTOMERS, getCustomer, primaryCustomer } from "@/lib/customers";
 import { freshnessOf, isoWeek, safeVibe, shortDate, VIBE_COLOR } from "@/lib/helpers";
 import type { PulseSubmission } from "@/lib/types";
 
 interface SidebarProps {
+  /** Which customer is currently open (its programmes expand beneath it). */
+  activeCustomerId?: string;
   activeProgrammeId?: string;
-  activePath?: string;
+  /** Latest submission per programme, for the active customer's status dots. */
   submissionsByProgramme?: Record<string, PulseSubmission>;
 }
 
-/** The HARTS heart-cluster rainbow, as one thin woven thread. */
+/** The HARTS heart-cluster rainbow, as one thin woven thread (platform brand). */
 const RAINBOW =
   "linear-gradient(90deg, #D6473F 0%, #E8A020 28%, #3BA46A 55%, #3E8FCF 78%, #6C47E8 100%)";
 
 export function Sidebar({
+  activeCustomerId,
   activeProgrammeId,
-  activePath = "/",
   submissionsByProgramme = {}
 }: SidebarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -28,7 +30,7 @@ export function Sidebar({
 
   useEffect(() => {
     setMobileOpen(false);
-  }, [activePath, activeProgrammeId]);
+  }, [activeCustomerId, activeProgrammeId]);
 
   useEffect(() => {
     const now = new Date();
@@ -49,9 +51,14 @@ export function Sidebar({
     };
   }, [mobileOpen]);
 
+  // The customer whose logo sits beside HARTS — the active one, or the primary
+  // as a sensible default for transient/loading states.
+  const brandCustomer =
+    (activeCustomerId ? getCustomer(activeCustomerId) : undefined) ?? primaryCustomer();
+
   const navContent = (
     <>
-      {/* Brand block */}
+      {/* Platform brand + the active customer's logo */}
       <div className="px-5 pt-5 pb-4">
         <Link href="/" className="block group" onClick={() => setMobileOpen(false)}>
           <div className="flex items-center gap-2.5">
@@ -65,11 +72,12 @@ export function Sidebar({
             />
             <span className="h-5 w-px bg-sand-300 shrink-0" />
             <Image
-              src="/logos/evora_logo.png"
-              alt="Evora Group"
-              width={307}
-              height={45}
-              className="h-[17px] w-auto shrink-0"
+              key={brandCustomer.id}
+              src={brandCustomer.logo}
+              alt={brandCustomer.name}
+              width={brandCustomer.logoWidth}
+              height={brandCustomer.logoHeight}
+              className="h-[17px] w-auto object-contain shrink-0"
               priority
             />
           </div>
@@ -83,63 +91,92 @@ export function Sidebar({
         </Link>
       </div>
 
-      <nav className="px-3 py-3 border-t border-sand-200">
-        <NavItem href="/" label="Pulse" active={activePath === "/"} icon={<PulseIcon />} />
-      </nav>
-
+      {/* Customers, each expanding to its own programmes when active */}
       <div className="px-3 py-3 border-t border-sand-200 overflow-y-auto flex-1">
         <div className="px-3 pb-2 text-[9px] uppercase tracking-[0.16em] text-ink-400">
-          Programmes
+          Customers
         </div>
-        <ul className="space-y-0.5">
-          {PROGRAMMES.map((p) => {
-            const s = submissionsByProgramme[p.id];
-            const f = freshnessOf(s?.submittedAt);
-            const dotColor =
-              s && f === "fresh"
-                ? VIBE_COLOR[safeVibe(s.vibe)]
-                : f === "stale"
-                  ? "#E8A020"
-                  : "#D0CBE2";
-            const isActive = activeProgrammeId === p.id;
-            const isMuted = f !== "fresh";
+        <ul className="space-y-1.5">
+          {CUSTOMERS.map((c) => {
+            const isActiveCustomer = c.id === activeCustomerId;
             return (
-              <li key={p.id}>
+              <li key={c.id}>
                 <Link
-                  href={`/programme/${p.id}`}
+                  href={`/c/${c.id}`}
                   onClick={() => setMobileOpen(false)}
-                  className={`relative flex items-center gap-2.5 pl-4 pr-3 py-1.5 rounded-lg text-xs transition-all duration-150 ${
-                    isActive
+                  className={`relative flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition ${
+                    isActiveCustomer
                       ? "bg-coral/10 text-ink-900 font-medium"
-                      : isMuted
-                        ? "text-ink-400 hover:bg-sand-100 hover:translate-x-0.5"
-                        : "text-ink-700 hover:bg-sand-100 hover:translate-x-0.5"
+                      : "text-ink-700 hover:bg-sand-100"
                   }`}
                 >
-                  {isActive && (
-                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-full bg-coral" />
-                  )}
                   <span
-                    className="w-2 h-2 rounded-full shrink-0 ring-2 ring-cream"
-                    style={{ backgroundColor: dotColor }}
+                    className="w-2.5 h-2.5 rounded-full shrink-0 ring-2 ring-cream"
+                    style={{ backgroundColor: `rgb(${c.theme.accent})` }}
                   />
-                  <span className="truncate">{p.shortName ?? p.name}</span>
+                  <span className="truncate">{c.shortName ?? c.name}</span>
+                  {c.comingSoon && (
+                    <span className="ml-auto text-[8.5px] uppercase tracking-[0.12em] text-ink-400 bg-sand-100 border border-sand-200 rounded-full px-1.5 py-0.5">
+                      soon
+                    </span>
+                  )}
                 </Link>
+
+                {/* Active customer's programmes */}
+                {isActiveCustomer && c.programmes.length > 0 && (
+                  <ul className="mt-1 ml-3 pl-3 border-l border-sand-200 space-y-0.5">
+                    {c.programmes.map((p) => {
+                      const s = submissionsByProgramme[p.id];
+                      const f = freshnessOf(s?.submittedAt);
+                      const dotColor =
+                        s && f === "fresh"
+                          ? VIBE_COLOR[safeVibe(s.vibe)]
+                          : f === "stale"
+                            ? "#E8A020"
+                            : "#D0CBE2";
+                      const isActive = activeProgrammeId === p.id;
+                      const isMuted = f !== "fresh";
+                      return (
+                        <li key={p.id}>
+                          <Link
+                            href={`/c/${c.id}/programme/${p.id}`}
+                            onClick={() => setMobileOpen(false)}
+                            className={`relative flex items-center gap-2.5 pl-3 pr-3 py-1.5 rounded-lg text-xs transition-all duration-150 ${
+                              isActive
+                                ? "bg-coral/10 text-ink-900 font-medium"
+                                : isMuted
+                                  ? "text-ink-400 hover:bg-sand-100 hover:translate-x-0.5"
+                                  : "text-ink-700 hover:bg-sand-100 hover:translate-x-0.5"
+                            }`}
+                          >
+                            {isActive && (
+                              <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-full bg-coral" />
+                            )}
+                            <span
+                              className="w-2 h-2 rounded-full shrink-0 ring-2 ring-cream"
+                              style={{ backgroundColor: dotColor }}
+                            />
+                            <span className="truncate">{p.shortName ?? p.name}</span>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+
+                {isActiveCustomer && c.comingSoon && (
+                  <p className="mt-1 ml-3 pl-3 border-l border-sand-200 text-[10px] text-ink-400 py-1">
+                    No programmes yet.
+                  </p>
+                )}
               </li>
             );
           })}
         </ul>
       </div>
 
-      <div className="px-5 py-3 border-t border-sand-200 text-[10px] text-ink-400 flex items-center justify-between">
+      <div className="px-5 py-3 border-t border-sand-200 text-[10px] text-ink-400">
         <span suppressHydrationWarning>{nowLabel ?? " "}</span>
-        <span className="hidden sm:flex items-center gap-1 text-ink-300">
-          <span>type</span>
-          <kbd className="px-1.5 py-0.5 rounded bg-coral/10 border border-coral/20 font-sans text-[9px] tracking-[0.08em] text-coral font-semibold">
-            harts
-          </kbd>
-          <span>to check-in</span>
-        </span>
       </div>
       <div className="px-5 py-2.5 border-t border-sand-200">
         <button
@@ -181,12 +218,7 @@ export function Sidebar({
               Pulse
             </span>
           </Link>
-          <Link
-            href="/input"
-            className="text-[11px] text-coral font-medium px-2.5 py-1 rounded-full bg-coral/10 hover:bg-coral/15 transition"
-          >
-            Check-in
-          </Link>
+          <span className="w-9" aria-hidden="true" />
         </div>
       </header>
 
@@ -234,37 +266,5 @@ export function Sidebar({
         {navContent}
       </aside>
     </>
-  );
-}
-
-function NavItem({
-  href,
-  label,
-  active,
-  icon
-}: {
-  href: string;
-  label: string;
-  active: boolean;
-  icon: React.ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition ${
-        active ? "bg-coral/10 text-coral" : "text-ink-700 hover:bg-sand-100"
-      }`}
-    >
-      <span className="w-3.5 h-3.5 inline-flex items-center justify-center">{icon}</span>
-      {label}
-    </Link>
-  );
-}
-
-function PulseIcon() {
-  return (
-    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M1 8 H4 L5.5 4 L8 12 L10 6 L11.5 8 H15" />
-    </svg>
   );
 }

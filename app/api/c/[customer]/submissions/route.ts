@@ -1,20 +1,22 @@
 import { NextResponse } from "next/server";
-import { PROGRAMMES_BY_ID } from "@/lib/programmes";
+import { getCustomer, programmesById } from "@/lib/customers";
 import { readAllSubmissions, readSubmission, writeSubmission } from "@/lib/store";
 import { generateNarratives, type NarrativeInputWithId } from "@/lib/claude";
 import { fetchJiraSnapshot, jiraConfigured } from "@/lib/jira";
-import type {
-  Attachment,
-  JiraSnapshot,
-  PersonSignal,
-  PulseSubmission,
-  Vibe
-} from "@/lib/types";
+import { parsePeopleNote } from "@/lib/helpers";
+import type { Attachment, JiraSnapshot, PulseSubmission, Vibe } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-export async function GET() {
-  const all = await readAllSubmissions();
+interface RouteContext {
+  params: Promise<{ customer: string }>;
+}
+
+export async function GET(_req: Request, ctx: RouteContext) {
+  const { customer: cid } = await ctx.params;
+  const customer = getCustomer(cid);
+  if (!customer) return NextResponse.json({ error: "Unknown customer" }, { status: 404 });
+  const all = await readAllSubmissions(customer);
   return NextResponse.json(all);
 }
 
@@ -25,14 +27,12 @@ interface SubmitEntry {
   peopleNote: string;
   openTopics: string;
   leadFreeText: string;
-  /** Files already uploaded via /api/attachments for this programme this session. */
   attachments?: Attachment[];
 }
 
 interface SubmitBody {
   submittedBy: string;
   entries?: SubmitEntry[];
-  // Back-compat: a single-programme submission may arrive as flat fields.
   programmeId?: string;
   accountable?: string;
   vibe?: Vibe;
@@ -43,37 +43,6 @@ interface SubmitBody {
 
 const LINES_MAX = 6;
 const VALID_VIBES = ["going_well", "watch_it", "stuck", "quiet_week"];
-
-function extractName(line: string): string {
-  const beforeSep = line.split(/[:,\-–—]/)[0].trim();
-  const source = beforeSep.length > 0 ? beforeSep : line;
-  const words = source
-    .split(/\s+/)
-    .map((w) => w.replace(/[^\p{L}\p{M}'’\-]/gu, ""))
-    .filter(Boolean)
-    .slice(0, 3);
-  const name = words.join(" ").trim();
-  return name.length > 0 ? name.slice(0, 60) : "Someone";
-}
-
-function parsePeople(raw: string): PersonSignal[] {
-  const lines = raw
-    .split(/\n|;/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-  return lines.slice(0, LINES_MAX).map((line) => {
-    const lower = line.toLowerCase();
-    const signal: PersonSignal["signal"] =
-      /(cool|quiet|watch|push|frustrat|miss|delay|wobbl|stall|block)/.test(lower)
-        ? "watch"
-        : /(warm|asked|leaning|happy|landed|signed|launch|won|hired|joined|offer)/.test(lower)
-          ? "warm"
-          : "neutral";
-    const name = extractName(line);
-    const hasNote = line.length > name.length + 2;
-    return { name, signal, note: hasNote ? line : undefined };
-  });
-}
 
 function parseOpenTopics(raw: string): Array<{ title: string }> {
   const seen = new Set<string>();
@@ -111,7 +80,12 @@ const EMPTY_JIRA: JiraSnapshot = {
   stalledNotes: []
 };
 
-export async function POST(req: Request) {
+export async function POST(req: Request, ctx: RouteContext) {
+  const { customer: cid } = await ctx.params;
+  const customer = getCustomer(cid);
+  if (!customer) return NextResponse.json({ error: "Unknown customer" }, { status: 404 });
+  const byId = programmesById(customer);
+
   let body: SubmitBody;
   try {
     body = (await req.json()) as SubmitBody;
@@ -119,7 +93,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  // Normalise: accept either { entries: [...] } or a single flat entry.
   const rawEntries: SubmitEntry[] =
     body.entries && body.entries.length > 0
       ? body.entries
@@ -137,16 +110,11 @@ export async function POST(req: Request) {
         : [];
 
   if (rawEntries.length === 0) {
-    return NextResponse.json(
-      { error: "No programmes to submit." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "No programmes to submit." }, { status: 400 });
   }
 
-  // Validate every entry up front — reject the whole batch if any is invalid,
-  // so the lead gets one clear message rather than a partial save.
   for (const entry of rawEntries) {
-    const programme = PROGRAMMES_BY_ID[entry.programmeId];
+    const programme = byId[entry.programmeId];
     if (!programme) {
       return NextResponse.json(
         { error: `Unknown programme: ${entry.programmeId}` },
@@ -169,17 +137,15 @@ export async function POST(req: Request) {
     }
   }
 
-  const submittedBy = body.submittedBy || "Srimathi Ravi";
+  const submittedBy = body.submittedBy || customer.submitter || "the lead";
   const now = new Date();
   const submittedAt = now.toISOString();
   const weekNumber = weekOf(now);
 
-  // Gather Jira per programme (each has its own board), then ask Claude ONCE
-  // for all narratives in a single call.
   const prepared = await Promise.all(
     rawEntries.map(async (entry) => {
-      const programme = PROGRAMMES_BY_ID[entry.programmeId];
-      const previous = await readSubmission(entry.programmeId);
+      const programme = byId[entry.programmeId];
+      const previous = await readSubmission(customer, entry.programmeId);
       let jira = previous?.jira ?? EMPTY_JIRA;
       if (jiraConfigured()) {
         try {
@@ -194,17 +160,15 @@ export async function POST(req: Request) {
     })
   );
 
-  const narrativeInputs: NarrativeInputWithId[] = prepared.map(
-    ({ entry, programme }) => ({
-      programmeId: entry.programmeId,
-      programmeName: programme.name,
-      lead: (entry.accountable ?? "").trim() || programme.lead,
-      vibe: entry.vibe,
-      peopleNote: entry.peopleNote,
-      openTopics: entry.openTopics,
-      leadFreeText: entry.leadFreeText
-    })
-  );
+  const narrativeInputs: NarrativeInputWithId[] = prepared.map(({ entry, programme }) => ({
+    programmeId: entry.programmeId,
+    programmeName: programme.name,
+    lead: (entry.accountable ?? "").trim() || programme.lead,
+    vibe: entry.vibe,
+    peopleNote: entry.peopleNote,
+    openTopics: entry.openTopics,
+    leadFreeText: entry.leadFreeText
+  }));
 
   let narratives: Record<string, import("@/lib/claude").NarrativeOutput>;
   try {
@@ -229,11 +193,6 @@ export async function POST(req: Request) {
       continue;
     }
 
-    // The client (drawer / input page) sends the authoritative attachment set
-    // for this week — the files it chose to KEEP plus this session's uploads —
-    // so a lead can remove a previously uploaded file simply by leaving it out.
-    // Only when the field is absent entirely (older flat single-programme
-    // callers) do we fall back to preserving the prior same-week files.
     let attachments: Attachment[];
     if (entry.attachments !== undefined) {
       const byUrl = new Map<string, Attachment>();
@@ -250,35 +209,28 @@ export async function POST(req: Request) {
       programmeId: entry.programmeId,
       submittedBy,
       accountable:
-        (entry.accountable ?? "").trim() ||
-        previous?.accountable ||
-        programme.lead,
+        (entry.accountable ?? "").trim() || previous?.accountable || programme.lead,
       weekNumber,
       submittedAt,
       vibe: entry.vibe,
-      people: parsePeople(entry.peopleNote),
+      people: parsePeopleNote(entry.peopleNote),
       openTopics: parseOpenTopics(entry.openTopics),
       leadFreeText: entry.leadFreeText || undefined,
       jira,
       aiNarrative: narrative.narrative,
       aiEssence: narrative.essence,
       signals: narrative.signals,
-      nextStep: narrative.nextStep,
       attachments
     };
 
     try {
-      await writeSubmission(submission);
+      await writeSubmission(customer, submission);
       saved.push(submission);
     } catch (err) {
-      failed.push({
-        programmeId: entry.programmeId,
-        error: (err as Error).message
-      });
+      failed.push({ programmeId: entry.programmeId, error: (err as Error).message });
     }
   }
 
-  // Nothing saved at all → this is a hard failure.
   if (saved.length === 0) {
     return NextResponse.json(
       { error: `Could not save to SharePoint: ${failed.map((f) => f.error).join("; ")}` },

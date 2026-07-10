@@ -1,8 +1,10 @@
 import "server-only";
 import { cache } from "react";
 import type { OpenTopic, PersonSignal, PulseSubmission } from "./types";
-import { PROGRAMMES_BY_ID } from "./programmes";
-import { safeVibe } from "./helpers";
+import type { Customer } from "./customers";
+import { programmesById } from "./customers";
+import { submissionsListIdFor } from "./customer-lists";
+import { isOperationalSignal, parsePeopleNote, personToLine, safeVibe } from "./helpers";
 import { buildNameList, redactNames } from "./redact";
 import {
   fetchSharePointListItems,
@@ -12,16 +14,14 @@ import {
 } from "./sharepoint";
 
 /**
- * Submissions live in the SharePoint "Pulse Submissions" list — one row per
- * programme per week. This is the single source of truth (the old on-disk
- * data/submissions.json is no longer used). Reads take the latest row per
- * programme; writes upsert the row for that programme + week.
- *
- * Column internal names (from the list) are referenced via COL below.
+ * Submissions live in a per-customer SharePoint list — one row per programme
+ * per week. This is the single source of truth. Reads take the latest row per
+ * programme; writes upsert the row for that programme + week. Every function
+ * takes the Customer so it reads/writes that customer's own list; the
+ * SharePoint site is shared across customers.
  */
 
 const SITE_ID = process.env.SHAREPOINT_SITE_ID ?? "";
-const LIST_ID = process.env.SP_LIST_SUBMISSIONS ?? "";
 
 const COL = {
   title: "Title",
@@ -42,12 +42,12 @@ const COL = {
 
 type Store = Record<string, PulseSubmission>;
 
-function configured(): boolean {
-  return Boolean(SITE_ID && LIST_ID);
+function configured(customer: Customer): boolean {
+  return Boolean(SITE_ID && submissionsListIdFor(customer.id));
 }
 
 function peopleToText(people: PersonSignal[]): string {
-  return people.map((p) => (p.note ? p.note : p.name)).join("\n");
+  return people.map(personToLine).join("\n");
 }
 
 function topicsToText(topics: OpenTopic[]): string {
@@ -55,8 +55,8 @@ function topicsToText(topics: OpenTopic[]): string {
 }
 
 /** Builds the SharePoint field set for a submission (all columns we own). */
-function submissionToFields(sub: PulseSubmission): Record<string, unknown> {
-  const programmeName = PROGRAMMES_BY_ID[sub.programmeId]?.name ?? sub.programmeId;
+function submissionToFields(sub: PulseSubmission, customer: Customer): Record<string, unknown> {
+  const programmeName = programmesById(customer)[sub.programmeId]?.name ?? sub.programmeId;
   return {
     [COL.title]: `${programmeName} — week ${sub.weekNumber}`,
     [COL.submittedBy]: sub.submittedBy,
@@ -88,25 +88,22 @@ function asNumber(v: unknown): number {
 /**
  * Reconstructs a submission from a row. The plain columns (Vibe, Accountable,
  * ProgrammeUpdates, PeopleSignals, OpenDecisions, ...) are always the source
- * of truth — editing one directly in SharePoint, or deleting the row, takes
- * effect on the very next read, since reads always hit SharePoint live.
- *
- * AIGeneratedJSON supplies only the handful of fields that have no column of
- * their own (essence, signals, next step, the full Jira breakdown) — and only
- * when it still matches this row's identity, so a stale blob left over from
- * before a manual edit can't override what's actually in the columns now.
+ * of truth. AIGeneratedJSON supplies only the fields that have no column of
+ * their own (essence, signals, the full Jira breakdown) and only when it still
+ * matches this row's identity. Rows whose ProgrammeId isn't one of this
+ * customer's programmes are skipped.
  */
-function rowToSubmission(fields: Record<string, unknown>): PulseSubmission | null {
+function rowToSubmission(
+  fields: Record<string, unknown>,
+  customer: Customer
+): PulseSubmission | null {
+  const byId = programmesById(customer);
   const programmeId = asString(fields[COL.programmeId]).trim();
-  if (!programmeId || !PROGRAMMES_BY_ID[programmeId]) return null;
+  if (!programmeId || !byId[programmeId]) return null;
 
   const completionPct = asNumber(fields[COL.completionPct]);
   const weekNumber = asNumber(fields[COL.weekNumber]);
-  const people: PersonSignal[] = asString(fields[COL.peopleSignals])
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .map((line) => ({ name: line.slice(0, 60), signal: "neutral" as const, note: line }));
+  const people: PersonSignal[] = parsePeopleNote(asString(fields[COL.peopleSignals]));
   const openTopics: OpenTopic[] = asString(fields[COL.openDecisions])
     .split("\n")
     .map((l) => l.trim())
@@ -115,7 +112,7 @@ function rowToSubmission(fields: Record<string, unknown>): PulseSubmission | nul
 
   const sub: PulseSubmission = {
     programmeId,
-    submittedBy: asString(fields[COL.submittedBy]) || PROGRAMMES_BY_ID[programmeId].lead,
+    submittedBy: asString(fields[COL.submittedBy]) || byId[programmeId].lead,
     accountable: asString(fields[COL.accountable]) || undefined,
     weekNumber,
     submittedAt: asString(fields[COL.submittedAt]) || new Date().toISOString(),
@@ -149,8 +146,7 @@ function rowToSubmission(fields: Record<string, unknown>): PulseSubmission | nul
   }
 
   // Final guarantee: strip any person's name from everything Claude wrote,
-  // using the names the lead actually flagged. This covers narratives stored
-  // before the "no names" rule, and any occasional slip by the model.
+  // using the names the lead actually flagged.
   const nameList = buildNameList([
     asString(fields[COL.peopleSignals]),
     asString(fields[COL.accountable])
@@ -165,54 +161,50 @@ function rowToSubmission(fields: Record<string, unknown>): PulseSubmission | nul
     }));
   }
 
+  // Delivery/Jira-flavoured signals never belong at CEO altitude — strip them
+  // here so even older stored submissions stop surfacing ticket counts.
+  sub.signals = (sub.signals ?? []).filter((s) => !isOperationalSignal(s.text));
+
   return sub;
 }
 
 /**
- * The one live network call this module makes. Wrapped in React's cache() so
- * that however many times readAllSubmissions() / readAllSubmissionRows() /
- * writeSubmission() are called within a single request (a page load fetches
- * both the current state AND the trend history; a multi-programme submit
- * looks up "previous" once per programme), SharePoint is only actually
- * fetched once. Without this, a single dashboard load was making 2 full-list
- * Graph API calls, and a 3-programme submit was making 6+.
+ * The one live network call this module makes, keyed (and cached) by list id so
+ * that however many times a customer's list is read within a single request
+ * (current state + trend history + CEO log), SharePoint is fetched only once
+ * per list.
  */
-export const fetchSubmissionsListItems = cache(async (): Promise<SharePointListItem[]> => {
-  const res = await fetchSharePointListItems(SITE_ID, LIST_ID);
-  if (!res.ok) {
-    throw new Error(`SharePoint read failed (${res.reason}${res.status ? " " + res.status : ""})`);
+export const fetchSubmissionsListItems = cache(
+  async (listId: string): Promise<SharePointListItem[]> => {
+    const res = await fetchSharePointListItems(SITE_ID, listId);
+    if (!res.ok) {
+      throw new Error(`SharePoint read failed (${res.reason}${res.status ? " " + res.status : ""})`);
+    }
+    return res.data.value;
   }
-  return res.data.value;
-});
+);
 
-/** The submissions list id + site, so the CEO log can share this same list. */
-export const SUBMISSIONS_SITE_ID = SITE_ID;
-export const SUBMISSIONS_LIST_ID = LIST_ID;
-
-// Internal alias kept for readability at call sites below.
-const fetchRows = fetchSubmissionsListItems;
-
-/** Every submission row mapped, across all weeks (used by the trend history). */
-export const readAllSubmissionRows = cache(async (): Promise<PulseSubmission[]> => {
-  if (!configured()) return [];
-  const rows = await fetchRows();
-  const out: PulseSubmission[] = [];
-  for (const row of rows) {
-    const sub = rowToSubmission(row.fields);
-    if (sub) out.push(sub);
+/** Every submission row for a customer, across all weeks (used by trends). */
+export const readAllSubmissionRows = cache(
+  async (customer: Customer): Promise<PulseSubmission[]> => {
+    if (!configured(customer)) return [];
+    const rows = await fetchSubmissionsListItems(submissionsListIdFor(customer.id));
+    const out: PulseSubmission[] = [];
+    for (const row of rows) {
+      const sub = rowToSubmission(row.fields, customer);
+      if (sub) out.push(sub);
+    }
+    return out;
   }
-  return out;
-});
+);
 
-/** Latest submission per programme (the dashboard's "current state"). */
-export async function readAllSubmissions(): Promise<Store> {
-  if (!configured()) return {};
+/** Latest submission per programme for a customer (its "current state"). */
+export async function readAllSubmissions(customer: Customer): Promise<Store> {
+  if (!configured(customer)) return {};
   let subs: PulseSubmission[];
   try {
-    subs = await readAllSubmissionRows();
+    subs = await readAllSubmissionRows(customer);
   } catch (err) {
-    // Degrade gracefully: an empty dashboard beats a crashed one. The failure
-    // is logged so it surfaces in the server logs.
     console.error("readAllSubmissions failed:", (err as Error).message);
     return {};
   }
@@ -227,26 +219,30 @@ export async function readAllSubmissions(): Promise<Store> {
 }
 
 export async function readSubmission(
+  customer: Customer,
   programmeId: string
 ): Promise<PulseSubmission | undefined> {
-  const store = await readAllSubmissions();
+  const store = await readAllSubmissions(customer);
   return store[programmeId];
 }
 
 /**
- * Upserts a submission: if a row already exists for this programme + week it is
- * updated (this week's overwrite), otherwise a new row is created. Throws on
- * failure so the submit endpoint can tell the lead their check-in didn't save.
+ * Upserts a submission into the customer's list: updates the existing row for
+ * this programme + week, otherwise creates one. Throws on failure.
  */
-export async function writeSubmission(submission: PulseSubmission): Promise<void> {
-  if (!configured()) {
+export async function writeSubmission(
+  customer: Customer,
+  submission: PulseSubmission
+): Promise<void> {
+  const listId = submissionsListIdFor(customer.id);
+  if (!SITE_ID || !listId) {
     throw new Error(
-      "SharePoint is not configured (SHAREPOINT_SITE_ID / SP_LIST_SUBMISSIONS)."
+      `SharePoint is not configured for ${customer.name} (SHAREPOINT_SITE_ID / submissions list).`
     );
   }
-  const fields = submissionToFields(submission);
+  const fields = submissionToFields(submission, customer);
 
-  const rows = await fetchRows();
+  const rows = await fetchSubmissionsListItems(listId);
   const existing = rows.find(
     (r) =>
       asString(r.fields[COL.programmeId]).trim() === submission.programmeId &&
@@ -254,7 +250,7 @@ export async function writeSubmission(submission: PulseSubmission): Promise<void
   );
 
   if (existing) {
-    const res = await updateSharePointListItemFields(SITE_ID, LIST_ID, existing.id, fields);
+    const res = await updateSharePointListItemFields(SITE_ID, listId, existing.id, fields);
     if (!res.ok) {
       throw new Error(
         `SharePoint update failed (${res.reason}${res.status ? " " + res.status : ""})`
@@ -263,7 +259,7 @@ export async function writeSubmission(submission: PulseSubmission): Promise<void
     return;
   }
 
-  const res = await writeSharePointListItem(SITE_ID, LIST_ID, fields);
+  const res = await writeSharePointListItem(SITE_ID, listId, fields);
   if (!res.ok) {
     throw new Error(
       `SharePoint write failed (${res.reason}${res.status ? " " + res.status : ""})`

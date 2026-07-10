@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { BabyElephant } from "@/components/BabyElephant";
-import { PROGRAMMES, PROGRAMMES_BY_ID } from "@/lib/programmes";
+import { getCustomer, primaryCustomer, programmesById } from "@/lib/customers";
+import { useCustomerId } from "@/lib/use-customer";
 import { VIBE_LABEL, type Attachment, type PulseSubmission, type Vibe } from "@/lib/types";
 import { VIBE_COLOR, relativeTime } from "@/lib/helpers";
 
@@ -16,7 +17,6 @@ const VIBE_HELP: Record<Vibe, string> = {
   quiet_week: "Nothing material to flag, scoping or early phase."
 };
 
-const SUBMITTER = "Srimathi Ravi";
 const FREE_TEXT_MIN = 20;
 const FREE_TEXT_MIN_DISTINCT_LETTERS = 5;
 const LINES_MAX = 6;
@@ -58,7 +58,11 @@ function isThisWeek(iso: string | undefined): boolean {
 }
 
 function peopleSignalsToText(s: PulseSubmission): string {
-  return s.people.map((p) => (p.note ? p.note : p.name)).join("\n");
+  // "name: note" (or just the name) so the round-trip stays stable and never
+  // re-embeds the name into its own note — see personToLine / parsePersonLine.
+  return s.people
+    .map((p) => (p.note && p.note !== p.name ? `${p.name}: ${p.note}` : p.name))
+    .join("\n");
 }
 
 function openTopicsToText(s: PulseSubmission): string {
@@ -119,13 +123,19 @@ function coverageOf(e: Entry): Coverage {
 function LeadInputForm() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const cid = useCustomerId();
+  const customer = getCustomer(cid) ?? primaryCustomer();
+  const programmes = customer.programmes;
+  const byId = programmesById(customer);
+  const submitter = customer.submitter || "the lead";
+  const apiBase = `/api/c/${customer.id}`;
   const raw = searchParams.get("programme");
   const initialProgrammeId =
-    raw && PROGRAMMES.some((p) => p.id === raw) ? raw : PROGRAMMES[0].id;
+    raw && programmes.some((p) => p.id === raw) ? raw : programmes[0]?.id ?? "";
 
   const [current, setCurrent] = useState(initialProgrammeId);
   const [entries, setEntries] = useState<Record<string, Entry>>(() => ({
-    [initialProgrammeId]: blankEntry(PROGRAMMES_BY_ID[initialProgrammeId].lead)
+    [initialProgrammeId]: blankEntry(byId[initialProgrammeId]?.lead ?? "")
   }));
   const [existingByProgramme, setExistingByProgramme] = useState<
     Record<string, PulseSubmission>
@@ -146,13 +156,13 @@ function LeadInputForm() {
   const [error, setError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
 
-  const programme = PROGRAMMES_BY_ID[current] ?? PROGRAMMES[0];
+  const programme = byId[current] ?? programmes[0];
 
   // Load every programme's latest submission once, for pre-fill + banners.
   useEffect(() => {
     let cancelled = false;
     setLoadingExisting(true);
-    fetch("/api/submissions")
+    fetch(`${apiBase}/submissions`)
       .then((r) => (r.ok ? r.json() : {}))
       .then((data: Record<string, PulseSubmission>) => {
         if (!cancelled) setExistingByProgramme(data ?? {});
@@ -172,7 +182,7 @@ function LeadInputForm() {
   // waiting for them. This is the CEO side of the conversation.
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/ceo-log")
+    fetch(`${apiBase}/ceo-log`)
       .then((r) => (r.ok ? r.json() : { notes: {}, views: {} }))
       .then(
         (log: {
@@ -198,7 +208,7 @@ function LeadInputForm() {
   // Make sure the current programme has an entry. Pre-fill from the existing
   // submission unless the lead has already edited it this session.
   useEffect(() => {
-    const lead = PROGRAMMES_BY_ID[current]?.lead ?? "";
+    const lead = byId[current]?.lead ?? "";
     setEntries((prev) => {
       if (prev[current] && includedRef.current.has(current)) return prev;
       const ex = existingByProgramme[current];
@@ -255,7 +265,7 @@ function LeadInputForm() {
     addFiles(Array.from(e.dataTransfer.files ?? []));
   }
 
-  const includedList = PROGRAMMES.filter((p) => included.has(p.id));
+  const includedList = programmes.filter((p) => included.has(p.id));
   const incompletePid = includedList.filter((p) => !coverageOf(entries[p.id]).all);
   const readyToSubmit = includedList.length > 0 && incompletePid.length === 0;
 
@@ -285,7 +295,7 @@ function LeadInputForm() {
         const fd = new FormData();
         fd.set("programmeId", p.id);
         en.files.forEach((f) => fd.append("files", f));
-        const uRes = await fetch("/api/attachments", { method: "POST", body: fd });
+        const uRes = await fetch(`${apiBase}/attachments`, { method: "POST", body: fd });
         const uBody = await uRes.json().catch(() => ({}));
         if (!uRes.ok) {
           throw new Error(uBody.error || `File upload failed for ${p.shortName ?? p.name}`);
@@ -313,10 +323,10 @@ function LeadInputForm() {
         };
       });
 
-      const res = await fetch("/api/submissions", {
+      const res = await fetch(`${apiBase}/submissions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ submittedBy: SUBMITTER, entries: payloadEntries })
+        body: JSON.stringify({ submittedBy: submitter, entries: payloadEntries })
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -326,7 +336,7 @@ function LeadInputForm() {
       const failed: Array<{ programmeId: string; error: string }> = body.failed ?? [];
       setSubmittedCount(saved.length);
       const saveWarnings = failed.map(
-        (f) => `${PROGRAMMES_BY_ID[f.programmeId]?.name ?? f.programmeId}: ${f.error}`
+        (f) => `${byId[f.programmeId]?.name ?? f.programmeId}: ${f.error}`
       );
       setWarnings([...uploadWarnings, ...saveWarnings]);
       router.refresh();
@@ -349,7 +359,7 @@ function LeadInputForm() {
   if (submittedCount !== null) {
     return (
       <div className="flex flex-col lg:flex-row min-h-screen">
-        <Sidebar activePath="/input" />
+        <Sidebar activeCustomerId={customer.id} />
         <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 sm:py-8 w-full lg:max-w-[760px] min-w-0">
           <div className="card px-6 sm:px-10 py-8 sm:py-12 text-center">
             <div className="flex justify-center mb-4">
@@ -380,7 +390,7 @@ function LeadInputForm() {
                 Start a new check-in
               </button>
               <Link
-                href="/"
+                href={`/c/${customer.id}`}
                 className="px-4 py-2 rounded-full bg-sand-100 text-ink-700 text-sm font-medium hover:bg-sand-200 transition"
               >
                 Back to pulse
@@ -394,7 +404,7 @@ function LeadInputForm() {
 
   return (
     <div className="flex flex-col lg:flex-row min-h-screen">
-      <Sidebar activePath="/input" />
+      <Sidebar activeCustomerId={customer.id} />
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-4 sm:py-6 w-full lg:max-w-[760px] min-w-0">
         <header className="mb-4">
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 sm:gap-4">
@@ -522,7 +532,7 @@ function LeadInputForm() {
               disabled={submitting}
               className="w-full bg-sand-50 border border-sand-200 rounded-lg px-3 py-2.5 text-sm text-ink-900 focus:outline-none focus:ring-2 focus:ring-coral/40 disabled:opacity-60"
             >
-              {PROGRAMMES.map((p) => (
+              {programmes.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
                   {included.has(p.id) ? "  ✓ added" : ""}
@@ -531,7 +541,7 @@ function LeadInputForm() {
             </select>
             <div className="mt-2 flex items-center justify-between gap-2">
               <p className="text-[11px] text-ink-500">
-                Checked in by <span className="text-ink-700">{SUBMITTER}</span>
+                Checked in by <span className="text-ink-700">{submitter}</span>
               </p>
               {loadingExisting && (
                 <span className="text-[10px] text-ink-400">loading existing…</span>

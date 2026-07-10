@@ -1,4 +1,4 @@
-import type { Vibe } from "./types";
+import type { PersonSignal, Vibe } from "./types";
 
 export const VIBE_COLOR: Record<Vibe, string> = {
   going_well: "#3BA46A",
@@ -134,4 +134,90 @@ export function freshnessOf(
   const then = new Date(submittedAt).getTime();
   const ageDays = (now.getTime() - then) / 86400000;
   return ageDays > staleDays ? "stale" : "fresh";
+}
+
+// ── People notes ─────────────────────────────────────────────
+// A lead's "people signals" field is one person per line. Each line is either
+// a bare name ("Vivek") or a name plus a short comment ("Vivek: warm and
+// engaged"). These helpers are the single source of truth for turning that
+// free text into { name, note } and back, so the write → read → prefill round
+// trip is stable and never amplifies (the old bug grew "Vivek" into
+// "Vivek: Vivek: Vivek: Vivek" a little more each week).
+
+const PEOPLE_LINES_MAX = 6;
+const PERSON_SEPARATOR = /[:,\-–—]/;
+const PERSON_WATCH_RE = /(cool|quiet|watch|push|frustrat|miss|delay|wobbl|stall|block)/;
+const PERSON_WARM_RE = /(warm|asked|leaning|happy|landed|signed|launch|won|hired|joined|offer)/;
+
+function cleanPersonName(raw: string): string {
+  const words = raw
+    .split(/\s+/)
+    .map((w) => w.replace(/[^\p{L}\p{M}'’\-]/gu, ""))
+    .filter(Boolean)
+    .slice(0, 3);
+  const name = words.join(" ").trim();
+  return name.length > 0 ? name.slice(0, 60) : "Someone";
+}
+
+/**
+ * Splits one people line into a person's name and an optional comment. A line
+ * with no separator is treated as a bare name (no note) — this is what lets the
+ * card show "just the name" when the lead only listed a person. Any note that
+ * turns out to be only the name repeated (historical corruption) is dropped.
+ */
+export function parsePersonLine(line: string): { name: string; note?: string } {
+  const trimmed = line.trim();
+  const sepIdx = trimmed.search(PERSON_SEPARATOR);
+  const namePart = sepIdx >= 0 ? trimmed.slice(0, sepIdx) : trimmed;
+  const notePart = sepIdx >= 0 ? trimmed.slice(sepIdx + 1).trim() : "";
+
+  const name = cleanPersonName(namePart);
+  let note: string | undefined = notePart.length > 0 ? notePart : undefined;
+  if (note) {
+    const tokens = note
+      .split(PERSON_SEPARATOR)
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (tokens.length > 0 && tokens.every((t) => t.toLowerCase() === name.toLowerCase())) {
+      note = undefined;
+    }
+  }
+  return { name, note };
+}
+
+/** Parses a whole people-signals field (one person per line) into structured signals. */
+export function parsePeopleNote(raw: string): PersonSignal[] {
+  const lines = raw
+    .split(/\n|;/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  return lines.slice(0, PEOPLE_LINES_MAX).map((line) => {
+    const lower = line.toLowerCase();
+    const signal: PersonSignal["signal"] = PERSON_WATCH_RE.test(lower)
+      ? "watch"
+      : PERSON_WARM_RE.test(lower)
+        ? "warm"
+        : "neutral";
+    const { name, note } = parsePersonLine(line);
+    return { name, signal, note };
+  });
+}
+
+/** Formats a person back to one storage/prefill line — the inverse of parsePersonLine. */
+export function personToLine(p: PersonSignal): string {
+  return p.note && p.note !== p.name ? `${p.name}: ${p.note}` : p.name;
+}
+
+// ── Signal hygiene ───────────────────────────────────────────
+// The CEO narrative and its signals are meant to stay at portfolio altitude:
+// no ticket counts, no percentages, no Jira mechanics. The prompt already asks
+// for this, but older stored submissions (and the rare model slip) can still
+// carry an operational signal like "119 tickets still to do" or "three tickets
+// quiet for 18 days". This is the deterministic net that keeps those from ever
+// reaching her, old data included.
+const OPERATIONAL_SIGNAL_RE =
+  /\d|%|\btickets?\b|\bjira\b|\bsprint\b|\bbacklog\b|\bstory points?\b|\bvelocity\b/i;
+
+export function isOperationalSignal(text: string): boolean {
+  return Boolean(text) && OPERATIONAL_SIGNAL_RE.test(text);
 }

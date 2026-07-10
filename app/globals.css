@@ -3,6 +3,13 @@
 @tailwind utilities;
 
 @layer base {
+  /* Default accent (Evora violet). Each customer layout overrides --accent on
+     its own wrapper; this default covers global pages like /sign-in. Stored as
+     RGB channels so Tailwind's coral/violet opacity utilities work. */
+  :root {
+    --accent: 108 71 232;
+  }
+
   html, body {
     background-color: theme('colors.sand.100');
     color: theme('colors.ink.800');
@@ -46,7 +53,7 @@
   }
 
   ::selection {
-    background-color: theme('colors.coral');
+    background-color: rgb(var(--accent));
     color: white;
   }
 }
@@ -58,8 +65,19 @@
   .pill {
     @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium;
   }
+  /* Headings previously leaned on a serif display face for weight. Now that the
+     whole UI is DM Sans, `font-serif` still marks a heading — give it a display
+     weight and a touch of negative tracking so titles keep their presence. An
+     explicit weight utility (e.g. font-medium) still wins, being in a later
+     layer. */
+  .font-serif {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
   .stat-num {
     font-family: theme('fontFamily.serif');
+    font-weight: 600;
+    letter-spacing: -0.01em;
   }
 }
 

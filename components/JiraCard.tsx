@@ -7,9 +7,9 @@ import type { JiraSnapshot } from "@/lib/types";
  * whose board is empty or unconfigured has `total === 0` and gets no card at
  * all, so the CEO never sees an empty shell.
  *
- * Deliberately number-light: a single completion figure and a proportional bar
- * with a plain-language legend. No per-status counts, no operational notes —
- * the CEO-level read is "how far along", not a ticket ledger.
+ * On a programme's own page the CEO can go one level deeper than the portfolio
+ * view: the completion figure and proportional bar are joined by the per-status
+ * counts (done / in progress / to do) and the total, for a fuller delivery read.
  */
 export function JiraCard({ snapshot }: { snapshot: JiraSnapshot }) {
   const { total, done, inProgress, todo, completionPct } = snapshot;
@@ -46,16 +46,17 @@ export function JiraCard({ snapshot }: { snapshot: JiraSnapshot }) {
         ))}
       </div>
 
-      {/* Legend — labels only, no counts */}
+      {/* Legend — label + count for each status */}
       <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
         {[
-          { label: "Done", color: "#3BA46A" },
-          { label: "In progress", color: "#E8A020" },
-          { label: "To do", color: "#948FAB" }
+          { label: "Done", color: "#3BA46A", value: done },
+          { label: "In progress", color: "#E8A020", value: inProgress },
+          { label: "To do", color: "#948FAB", value: todo }
         ].map((s) => (
           <li key={s.label} className="flex items-center gap-1.5 text-[11px] text-ink-500">
             <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
-            {s.label}
+            <span>{s.label}</span>
+            <span className="tabular-nums font-medium text-ink-800">{s.value}</span>
           </li>
         ))}
       </ul>

@@ -1,25 +1,20 @@
 import type { Metadata, Viewport } from "next";
-import { DM_Sans, DM_Serif_Display } from "next/font/google";
+import { DM_Sans } from "next/font/google";
 import "./globals.css";
 import { InputShortcutProvider } from "@/components/InputShortcutProvider";
-import { PROGRAMMES } from "@/lib/programmes";
 
+// One typeface across the whole app. DM Sans is a variable font, so every
+// weight used (400 body → 600/700 headings) comes from this single load.
 const dmSans = DM_Sans({
   subsets: ["latin"],
   variable: "--font-dm-sans",
   display: "swap"
 });
 
-const dmSerif = DM_Serif_Display({
-  subsets: ["latin"],
-  weight: "400",
-  variable: "--font-dm-serif",
-  display: "swap"
-});
-
 export const metadata: Metadata = {
-  title: "HARTS × Evora — Pulse",
-  description: `An emotional, sentiment-led view of the ${PROGRAMMES.length} active HARTS × Evora transformation programmes.`
+  title: "HARTS — Customer Pulse",
+  description:
+    "An emotional, sentiment-led view of HARTS' customer transformation programmes."
 };
 
 export const viewport: Viewport = {
@@ -30,7 +25,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${dmSans.variable} ${dmSerif.variable}`}>
+    <html lang="en" className={dmSans.variable}>
       <body className="font-sans">
           <InputShortcutProvider>{children}</InputShortcutProvider>
         </body>

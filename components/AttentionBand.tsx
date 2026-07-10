@@ -1,7 +1,6 @@
 import Link from "next/link";
-import type { OpenTopic } from "@/lib/types";
+import type { OpenTopic, Programme } from "@/lib/types";
 import type { CeoLog } from "@/lib/ceo-store";
-import { PROGRAMMES } from "@/lib/programmes";
 import { actionKey } from "@/lib/helpers";
 
 interface Item {
@@ -12,9 +11,12 @@ interface Item {
 interface AttentionBandProps {
   items: Item[];
   ceoLog: CeoLog;
+  /** The active customer's programmes, for grouping + links. */
+  programmes: Programme[];
+  customerId: string;
 }
 
-export function AttentionBand({ items, ceoLog }: AttentionBandProps) {
+export function AttentionBand({ items, ceoLog, programmes, customerId }: AttentionBandProps) {
   const openItems = items.filter((it) => {
     const key = actionKey("topic", it.programmeId, it.topic.title);
     return !ceoLog.actions[key];
@@ -22,7 +24,7 @@ export function AttentionBand({ items, ceoLog }: AttentionBandProps) {
   const handledCount = items.length - openItems.length;
 
   // Group open items by programme, preserving portfolio order
-  const groups = PROGRAMMES.map((p) => ({
+  const groups = programmes.map((p) => ({
     programme: p,
     topics: openItems.filter((it) => it.programmeId === p.id)
   })).filter((g) => g.topics.length > 0);
@@ -48,7 +50,7 @@ export function AttentionBand({ items, ceoLog }: AttentionBandProps) {
           {groups.map((g) => (
             <div key={g.programme.id}>
               <Link
-                href={`/programme/${g.programme.id}`}
+                href={`/c/${customerId}/programme/${g.programme.id}`}
                 className="group flex items-center gap-2"
               >
                 <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-coral">

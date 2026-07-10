@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useCustomerApiBase } from "@/lib/use-customer";
 
 interface FileViewedButtonProps {
   actionKey: string;
@@ -19,13 +20,14 @@ export function FileViewedButton({ actionKey, initialViewed }: FileViewedButtonP
   const [pending, setPending] = useState(false);
   const [, startTransition] = useTransition();
   const router = useRouter();
+  const apiBase = useCustomerApiBase();
 
   async function toggle() {
     const next = !viewed;
     setViewed(next);
     setPending(true);
     try {
-      const res = await fetch("/api/ceo-log", {
+      const res = await fetch(`${apiBase}/ceo-log`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useCustomerApiBase } from "@/lib/use-customer";
 
 interface NoteToLeadProps {
   programmeId: string;
@@ -20,6 +21,7 @@ export function NoteToLead({ programmeId, initialText }: NoteToLeadProps) {
   const [justSent, setJustSent] = useState(false);
   const [, startTransition] = useTransition();
   const router = useRouter();
+  const apiBase = useCustomerApiBase();
 
   const trimmed = text.trim();
 
@@ -28,7 +30,7 @@ export function NoteToLead({ programmeId, initialText }: NoteToLeadProps) {
     setPending(true);
     setJustSent(false);
     try {
-      const res = await fetch("/api/ceo-log", {
+      const res = await fetch(`${apiBase}/ceo-log`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: "note", programmeId, text: trimmed })

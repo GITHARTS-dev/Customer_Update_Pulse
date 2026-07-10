@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { PROGRAMMES_BY_ID } from "@/lib/programmes";
+import { getCustomer, programmesById } from "@/lib/customers";
 import { uploadFileToSiteDrive } from "@/lib/sharepoint";
 import type { Attachment } from "@/lib/types";
 
@@ -8,6 +8,10 @@ export const runtime = "nodejs";
 const SITE_ID = process.env.SHAREPOINT_SITE_ID ?? "";
 const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MB per file
 
+interface RouteContext {
+  params: Promise<{ customer: string }>;
+}
+
 function weekOf(date: Date): number {
   const firstJan = new Date(date.getFullYear(), 0, 1);
   const days = Math.floor((date.getTime() - firstJan.getTime()) / 86400000);
@@ -15,16 +19,20 @@ function weekOf(date: Date): number {
 }
 
 function safeName(name: string): string {
-  // Keep letters/numbers/space/dot/dash/underscore; collapse the rest.
   return name.replace(/[^\w.\- ]+/g, "_").replace(/\s+/g, " ").trim().slice(0, 120) || "file";
 }
 
 /**
- * Uploads one or more files for a programme's weekly check-in. Files are
- * stored in the SharePoint document library and never read by Claude — they
- * exist purely for the CEO to open from the programme's Signals card.
+ * Uploads one or more files for a programme's weekly check-in. Files are stored
+ * in the SharePoint document library, foldered by customer, and never read by
+ * Claude — they exist purely for the CEO to open from the Signals card.
  */
-export async function POST(req: Request) {
+export async function POST(req: Request, ctx: RouteContext) {
+  const { customer: cid } = await ctx.params;
+  const customer = getCustomer(cid);
+  if (!customer) {
+    return NextResponse.json({ error: "Unknown customer" }, { status: 404 });
+  }
   if (!SITE_ID) {
     return NextResponse.json(
       { error: "SharePoint is not configured (SHAREPOINT_SITE_ID)." },
@@ -40,7 +48,7 @@ export async function POST(req: Request) {
   }
 
   const programmeId = String(form.get("programmeId") ?? "");
-  if (!PROGRAMMES_BY_ID[programmeId]) {
+  if (!programmesById(customer)[programmeId]) {
     return NextResponse.json({ error: `Unknown programme: ${programmeId}` }, { status: 400 });
   }
 
@@ -58,8 +66,7 @@ export async function POST(req: Request) {
       failed.push({ name: file.name, error: "file is larger than 25 MB" });
       continue;
     }
-    // Timestamp prefix keeps re-uploads of the same filename from colliding.
-    const path = `PulseAttachments/${programmeId}/w${week}/${Date.now()}-${safeName(file.name)}`;
+    const path = `PulseAttachments/${customer.id}/${programmeId}/w${week}/${Date.now()}-${safeName(file.name)}`;
     const bytes = await file.arrayBuffer();
     const res = await uploadFileToSiteDrive(
       SITE_ID,

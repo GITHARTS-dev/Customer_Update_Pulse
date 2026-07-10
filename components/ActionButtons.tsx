@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useCustomerApiBase } from "@/lib/use-customer";
 import type { ActionStatus } from "@/lib/ceo-store";
 
 type Status = ActionStatus | "open";
@@ -22,13 +23,14 @@ export function ActionButtons({ actionKey, initialStatus }: ActionButtonsProps) 
   const [pending, setPending] = useState(false);
   const [, startTransition] = useTransition();
   const router = useRouter();
+  const apiBase = useCustomerApiBase();
 
   async function setAction(next: Status) {
     const prev = status;
     setStatus(next);
     setPending(true);
     try {
-      const res = await fetch("/api/ceo-log", {
+      const res = await fetch(`${apiBase}/ceo-log`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: "action", key: actionKey, status: next })

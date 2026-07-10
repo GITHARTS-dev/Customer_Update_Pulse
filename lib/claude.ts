@@ -22,7 +22,6 @@ export interface NarrativeOutput {
   narrative: string;
   essence: string;
   signals: Signal[];
-  nextStep?: string;
 }
 
 // Voice, altitude, kindness, integrity and signal rules — shared by the single
@@ -32,6 +31,7 @@ const COMMON_RULES = `You are a chief of staff writing a weekly pulse note about
 Altitude rules (these are the most important — a note that breaks them is useless to her):
 - Write at the altitude of a CEO, never an operational status report. Speak to the health of the programme and what it means, not the mechanics of the work.
 - NEVER mention operational or quantitative detail: no counts of tasks, tickets, or items; no percentages; no "three things are quiet", no "two topics", no ticket names, no tool or board references. If you are about to write a number about the work, stop and describe what it means instead.
+- Delivery progress is never a signal. Even if the lead's notes mention Jira, tickets, boards, sprints, backlogs, a completion percentage, or any counts, never repeat them and never build a narrative or signal around them. Translate delivery into qualitative health only: "early days", "moving steadily", "nearly there", "taking longer than hoped". No signal may be about tickets, a board, or how much is done.
 - Give her the signal, not the activity. Good: "the client relationship is warm and the direction is set." Bad: "several tickets have been quiet, worth a check before the workshop."
 - Surface real substance: what is genuinely going well, what could become a problem, and where she specifically needs to weigh in.
 
@@ -68,8 +68,7 @@ Signals — think before you write each one (quality over quantity):
 
 const OUTPUT_FIELDS = `  "narrative": "1 to 2 high-level sentences with **bold** markers, no names, no numbers",
   "essence": "5 to 7 word summary, no names, no numbers",
-  "signals": [ { "kind": "win" | "watch" | "ask", "text": "one short high-level observation, no names, no numbers" } ],
-  "nextStep": "optional single high-level sentence on where the CEO's attention or a decision would help, or null if nothing needs her"`;
+  "signals": [ { "kind": "win" | "watch" | "ask", "text": "one short high-level observation, no names, no numbers" } ]`;
 
 const SINGLE_FORMAT = `Output format:
 Return ONLY a valid JSON object with these exact keys:
@@ -226,8 +225,7 @@ export async function generateNarratives(
     out[programmeId] = {
       narrative,
       essence,
-      signals: Array.isArray(item.signals) ? (item.signals as Signal[]) : [],
-      nextStep: typeof item.nextStep === "string" ? item.nextStep : undefined
+      signals: Array.isArray(item.signals) ? (item.signals as Signal[]) : []
     };
   }
   return out;

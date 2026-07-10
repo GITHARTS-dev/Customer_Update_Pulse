@@ -25,9 +25,12 @@ const config: Config = {
           400: "#948FAB",
           300: "#B6B1C8"
         },
-        // Primary accent = Evora violet. "coral" key kept so the whole UI re-themes.
-        coral: "#6C47E8",
-        violet: "#6C47E8",
+        // Primary accent is per-customer, driven by the --accent CSS variable
+        // (RGB channels) set on each customer's layout wrapper. Defined this way
+        // so opacity utilities (bg-coral/10, focus:ring-coral/40, …) keep working.
+        // "coral" and "violet" are aliases so the whole existing UI re-themes.
+        coral: "rgb(var(--accent) / <alpha-value>)",
+        violet: "rgb(var(--accent) / <alpha-value>)",
         // Sentiment = the HARTS rainbow (green / gold / red / blue)
         leaf: "#3BA46A",
         amber: "#E8A020",
@@ -35,8 +38,12 @@ const config: Config = {
         slate: "#3E8FCF"
       },
       fontFamily: {
-        sans: ['"DM Sans"', "system-ui", "sans-serif"],
-        serif: ['"DM Serif Display"', "Georgia", "serif"]
+        // DM Sans everywhere — the loaded webfont via next/font's CSS variable,
+        // falling back to the system sans stack. "serif" is kept as a key (many
+        // headings still use `font-serif`) but now resolves to DM Sans too, so
+        // the whole UI is one typeface.
+        sans: ["var(--font-dm-sans)", "system-ui", "sans-serif"],
+        serif: ["var(--font-dm-sans)", "system-ui", "sans-serif"]
       },
       boxShadow: {
         card: "0 1px 2px rgba(60, 50, 40, 0.04), 0 4px 16px rgba(60, 50, 40, 0.05)",

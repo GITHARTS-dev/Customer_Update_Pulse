@@ -32,7 +32,7 @@ export default async function SignInPage({
         </div>
 
         <div>
-          <h1 className="font-serif text-xl text-ink-900">Welcome back</h1>
+          <h1 className="font-serif text-xl text-ink-900">Lovely to have you here</h1>
           <p className="mt-1 text-sm text-ink-500">
             Sign in with your work account to open the Pulse dashboard.
           </p>

@@ -1,5 +1,6 @@
 import "server-only";
 import type { PulseSubmission, Vibe } from "./types";
+import type { Customer } from "./customers";
 import { readAllSubmissionRows } from "./store";
 import { isoWeek, safeVibe } from "./helpers";
 
@@ -40,11 +41,12 @@ function byWeek(a: WeekSnapshot, b: WeekSnapshot): number {
  * the history). If two rows land in the same week, the later one wins.
  */
 export async function readProgrammeHistory(
+  customer: Customer,
   programmeId: string
 ): Promise<WeekSnapshot[]> {
   let rows: PulseSubmission[];
   try {
-    rows = await readAllSubmissionRows();
+    rows = await readAllSubmissionRows(customer);
   } catch (err) {
     console.error("readProgrammeHistory failed:", (err as Error).message);
     return [];

@@ -1,6 +1,8 @@
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Sidebar } from "@/components/Sidebar";
+import { SidebarData } from "@/components/SidebarData";
 import { BabyElephant } from "@/components/BabyElephant";
 import { SunRays } from "@/components/SunRays";
 import { ActionButtons } from "@/components/ActionButtons";
@@ -9,7 +11,8 @@ import { NoteToLead } from "@/components/NoteToLead";
 import { VibeTrajectory } from "@/components/VibeTrajectory";
 import { JiraCard } from "@/components/JiraCard";
 import { ProgrammeViewTracker } from "@/components/ProgrammeViewTracker";
-import { PROGRAMMES, PROGRAMMES_BY_ID } from "@/lib/programmes";
+import { ProgrammeBodySkeleton } from "@/components/Skeletons";
+import { getCustomer, programmesById, type Customer } from "@/lib/customers";
 import {
   actionKey,
   freshnessOf,
@@ -22,16 +25,12 @@ import {
 import { readAllSubmissions } from "@/lib/store";
 import { readCeoLog } from "@/lib/ceo-store";
 import { readProgrammeHistory } from "@/lib/history-store";
-import { VIBE_LABEL, type SignalKind } from "@/lib/types";
+import { VIBE_LABEL, type Programme, type SignalKind } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-export function generateStaticParams() {
-  return PROGRAMMES.map((p) => ({ id: p.id }));
-}
-
 interface PageProps {
-  params: Promise<{ id: string }>;
+  params: Promise<{ customer: string; id: string }>;
 }
 
 const SIGNAL_STYLE: Record<SignalKind, { bg: string; dot: string; label: string }> = {
@@ -41,13 +40,47 @@ const SIGNAL_STYLE: Record<SignalKind, { bg: string; dot: string; label: string 
 };
 
 export default async function ProgrammePage({ params }: PageProps) {
-  const { id } = await params;
-  const programme = PROGRAMMES_BY_ID[id];
+  const { customer: cid, id } = await params;
+  const customer = getCustomer(cid);
+  if (!customer) return notFound();
+  const programme = programmesById(customer)[id];
   if (!programme) return notFound();
+
+  return (
+    <div className="flex flex-col lg:flex-row min-h-screen">
+      <ProgrammeViewTracker programmeId={programme.id} />
+      <Suspense fallback={<Sidebar activeCustomerId={customer.id} activeProgrammeId={programme.id} />}>
+        <SidebarData customer={customer} activeProgrammeId={programme.id} />
+      </Suspense>
+      <main className="flex-1 px-4 sm:px-6 lg:px-8 py-4 sm:py-6 flex flex-col gap-4 min-w-0">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Link
+            href={`/c/${customer.id}`}
+            className="text-xs text-ink-500 hover:text-coral inline-flex items-center gap-1 w-fit"
+          >
+            <span aria-hidden>←</span> Back to pulse
+          </Link>
+        </div>
+
+        <Suspense fallback={<ProgrammeBodySkeleton programme={programme} />}>
+          <ProgrammeBody customer={customer} programme={programme} />
+        </Suspense>
+      </main>
+    </div>
+  );
+}
+
+async function ProgrammeBody({
+  customer,
+  programme
+}: {
+  customer: Customer;
+  programme: Programme;
+}) {
   const [submissionsByProgramme, ceoLog, history] = await Promise.all([
-    readAllSubmissions(),
-    readCeoLog(),
-    readProgrammeHistory(programme.id)
+    readAllSubmissions(customer),
+    readCeoLog(customer),
+    readProgrammeHistory(customer, programme.id)
   ]);
 
   const submission = submissionsByProgramme[programme.id];
@@ -56,43 +89,25 @@ export default async function ProgrammePage({ params }: PageProps) {
 
   if (!submission) {
     return (
-      <div className="flex flex-col lg:flex-row min-h-screen">
-        <ProgrammeViewTracker programmeId={programme.id} />
-        <Sidebar
-          activeProgrammeId={programme.id}
-          activePath={`/programme/${programme.id}`}
-          submissionsByProgramme={submissionsByProgramme}
-        />
-        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-4 sm:py-6 w-full lg:max-w-[760px] min-w-0">
-          <Link
-            href="/"
-            className="text-xs text-ink-500 hover:text-coral inline-flex items-center gap-1 w-fit"
-          >
-            <span aria-hidden>←</span> Back to pulse
-          </Link>
-          <section className="card px-6 sm:px-10 py-8 sm:py-12 mt-3 text-center">
-            <div className="flex justify-center mb-4 opacity-50">
-              <BabyElephant vibe="quiet_week" size={120} background={false} />
-            </div>
-            <h1 className="font-serif text-2xl sm:text-3xl text-ink-900">{programme.name}</h1>
-            <p className="mt-2 text-sm text-ink-500">
-              No update on this one yet.
-            </p>
-            {programme.subProgrammes && programme.subProgrammes.length > 0 && (
-              <div className="mt-4 flex flex-wrap justify-center gap-1.5">
-                {programme.subProgrammes.map((s) => (
-                  <span
-                    key={s}
-                    className="pill text-[10px] bg-sand-100 text-ink-500 border border-sand-200"
-                  >
-                    {s}
-                  </span>
-                ))}
-              </div>
-            )}
-          </section>
-        </main>
-      </div>
+      <section className="card px-6 sm:px-10 py-8 sm:py-12 text-center">
+        <div className="flex justify-center mb-4 opacity-50">
+          <BabyElephant vibe="quiet_week" size={120} background={false} />
+        </div>
+        <h1 className="font-serif text-2xl sm:text-3xl text-ink-900">{programme.name}</h1>
+        <p className="mt-2 text-sm text-ink-500">No update on this one yet.</p>
+        {programme.subProgrammes && programme.subProgrammes.length > 0 && (
+          <div className="mt-4 flex flex-wrap justify-center gap-1.5">
+            {programme.subProgrammes.map((s) => (
+              <span
+                key={s}
+                className="pill text-[10px] bg-sand-100 text-ink-500 border border-sand-200"
+              >
+                {s}
+              </span>
+            ))}
+          </div>
+        )}
+      </section>
     );
   }
 
@@ -104,57 +119,35 @@ export default async function ProgrammePage({ params }: PageProps) {
   const attachments = submission.attachments ?? [];
 
   return (
-    <div className="flex flex-col lg:flex-row min-h-screen">
-      <ProgrammeViewTracker programmeId={programme.id} />
-      <Sidebar
-        activeProgrammeId={programme.id}
-        activePath={`/programme/${programme.id}`}
-        submissionsByProgramme={submissionsByProgramme}
-      />
-      <main className="flex-1 px-4 sm:px-6 lg:px-8 py-4 sm:py-6 flex flex-col gap-4 min-w-0">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <Link
-            href="/"
-            className="text-xs text-ink-500 hover:text-coral inline-flex items-center gap-1 w-fit"
-          >
-            <span aria-hidden>←</span> Back to pulse
-          </Link>
-        </div>
-
-        <section
-          className="rounded-card bg-gradient-to-br from-[#191627] via-[#241C46] to-[#3A2A6B] text-cream shadow-hero px-5 sm:px-7 py-5 sm:py-6 relative overflow-hidden"
-        >
-          <div
-            className="absolute -right-12 -top-12 w-72 h-72 rounded-full blur-3xl pointer-events-none"
-            style={{ backgroundColor: VIBE_COLOR[vibe], opacity: 0.2 }}
-          />
-          <SunRays className="w-[1400px] h-[1400px] -top-[700px] -right-[700px]" />
-          <div className="relative flex flex-col sm:flex-row items-center sm:items-center gap-4 sm:gap-7 text-center sm:text-left">
-            <div
-              className="shrink-0"
-              style={{ opacity: freshness === "fresh" ? 1 : 0.6 }}
-            >
-              <BabyElephant vibe={vibe} size={110} animated />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] tracking-[0.18em] uppercase text-cream/55 mb-1">
-                Programme
-              </p>
-              <h1 className="font-serif text-2xl sm:text-3xl leading-tight">{programme.name}</h1>
-              <div className="mt-2 flex flex-wrap items-center justify-center sm:justify-start gap-2.5 text-xs text-cream/75">
-                <span>Led by {submission.accountable ?? programme.lead}</span>
-                <span className="text-cream/30">·</span>
-                <span
-                  className="pill text-[10px]"
-                  style={{ backgroundColor: tone.bg, color: tone.text }}
-                >
-                  {VIBE_LABEL[vibe]}
-                </span>
-                <span className="text-cream/30">·</span>
-                <span>
-                  Updated {relativeTime(submission.submittedAt)}
-                </span>
-                {priorViewedAt && new Date(priorViewedAt) >= new Date(submission.submittedAt) && (
+    <>
+      <section className="rounded-card bg-gradient-to-br from-[#191627] via-[#241C46] to-[#3A2A6B] text-cream shadow-hero px-5 sm:px-7 py-5 sm:py-6 relative overflow-hidden">
+        <div
+          className="absolute -right-12 -top-12 w-72 h-72 rounded-full blur-3xl pointer-events-none"
+          style={{ backgroundColor: VIBE_COLOR[vibe], opacity: 0.2 }}
+        />
+        <SunRays className="w-[1400px] h-[1400px] -top-[700px] -right-[700px]" />
+        <div className="relative flex flex-col sm:flex-row items-center sm:items-center gap-4 sm:gap-7 text-center sm:text-left">
+          <div className="shrink-0" style={{ opacity: freshness === "fresh" ? 1 : 0.6 }}>
+            <BabyElephant vibe={vibe} size={110} animated />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] tracking-[0.18em] uppercase text-cream/55 mb-1">
+              Programme
+            </p>
+            <h1 className="font-serif text-2xl sm:text-3xl leading-tight">{programme.name}</h1>
+            <div className="mt-2 flex flex-wrap items-center justify-center sm:justify-start gap-2.5 text-xs text-cream/75">
+              <span>Led by {submission.accountable ?? programme.lead}</span>
+              <span className="text-cream/30">·</span>
+              <span
+                className="pill text-[10px]"
+                style={{ backgroundColor: tone.bg, color: tone.text }}
+              >
+                {VIBE_LABEL[vibe]}
+              </span>
+              <span className="text-cream/30">·</span>
+              <span>Updated {relativeTime(submission.submittedAt)}</span>
+              {priorViewedAt &&
+                new Date(priorViewedAt) >= new Date(submission.submittedAt) && (
                   <>
                     <span className="text-cream/30">·</span>
                     <span className="text-cream/55">
@@ -162,37 +155,37 @@ export default async function ProgrammePage({ params }: PageProps) {
                     </span>
                   </>
                 )}
-                {freshness === "stale" && (
-                  <span
-                    className="pill text-[10px]"
-                    style={{ backgroundColor: "#F8E7CC", color: "#7A4A0E" }}
-                  >
-                    stale
-                  </span>
-                )}
-              </div>
-              {programme.subProgrammes && programme.subProgrammes.length > 0 && (
-                <div className="mt-3 flex flex-wrap items-center justify-center sm:justify-start gap-1.5">
-                  <span className="text-[10px] uppercase tracking-[0.14em] text-cream/45 mr-0.5">
-                    Includes
-                  </span>
-                  {programme.subProgrammes.map((s) => (
-                    <span
-                      key={s}
-                      className="pill text-[10px] bg-cream/15 text-cream/85 border border-cream/20"
-                    >
-                      {s}
-                    </span>
-                  ))}
-                </div>
+              {freshness === "stale" && (
+                <span
+                  className="pill text-[10px]"
+                  style={{ backgroundColor: "#F8E7CC", color: "#7A4A0E" }}
+                >
+                  stale
+                </span>
               )}
             </div>
+            {programme.subProgrammes && programme.subProgrammes.length > 0 && (
+              <div className="mt-3 flex flex-wrap items-center justify-center sm:justify-start gap-1.5">
+                <span className="text-[10px] uppercase tracking-[0.14em] text-cream/45 mr-0.5">
+                  Includes
+                </span>
+                {programme.subProgrammes.map((s) => (
+                  <span
+                    key={s}
+                    className="pill text-[10px] bg-cream/15 text-cream/85 border border-cream/20"
+                  >
+                    {s}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
-        </section>
+        </div>
+      </section>
 
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
-          {/* Left column: narrative + signals, stacked to their own height */}
-          <div className="lg:col-span-3 flex flex-col gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
+        {/* Left column: narrative + signals */}
+        <div className="lg:col-span-3 flex flex-col gap-4">
           <section className="card px-5 sm:px-6 py-5 relative">
             <span className="absolute -top-2.5 left-5 px-2 py-0.5 text-[9px] uppercase tracking-[0.14em] bg-cream border border-sand-200 rounded-full text-ink-500">
               {freshness === "fresh" ? "This week's narrative" : "Last narrative"}
@@ -292,9 +285,6 @@ export default async function ProgrammePage({ params }: PageProps) {
                   {attachments.map((a) => {
                     const fileKey = actionKey("file", programme.id, a.url);
                     const viewed = ceoLog.actions[fileKey] !== undefined;
-                    // Opening the SharePoint webUrl shows the file in SharePoint's
-                    // in-browser viewer — no download. The download link nudges
-                    // SharePoint to send the bytes, only when she actually wants them.
                     const downloadUrl = `${a.url}${a.url.includes("?") ? "&" : "?"}download=1`;
                     return (
                       <li
@@ -374,31 +364,18 @@ export default async function ProgrammePage({ params }: PageProps) {
                 </ul>
               </div>
             )}
-            {submission.nextStep && (
-              <div className="mt-4 pt-4 border-t border-sand-200">
-                <p className="text-[9px] tracking-[0.14em] uppercase text-ink-400 mb-1">
-                  Next step
-                </p>
-                <p className="text-sm text-ink-800">{submission.nextStep}</p>
-              </div>
-            )}
           </section>
 
-          <NoteToLead
-            programmeId={programme.id}
-            initialText={ceoNote?.text ?? ""}
-          />
-          </div>
+          <NoteToLead programmeId={programme.id} initialText={ceoNote?.text ?? ""} />
+        </div>
 
-          {/* Right column: how it's trended, then people */}
-          <div className="lg:col-span-2 flex flex-col gap-4">
-            <VibeTrajectory history={history} currentVibe={vibe} />
+        {/* Right column: trend, then delivery, then people */}
+        <div className="lg:col-span-2 flex flex-col gap-4">
+          <VibeTrajectory history={history} currentVibe={vibe} />
 
-            {/* Jira card only when the board actually has tickets; a programme
-                with no Jira data gets no empty shell. */}
-            {submission.jira.total > 0 && <JiraCard snapshot={submission.jira} />}
+          {submission.jira.total > 0 && <JiraCard snapshot={submission.jira} />}
 
-            <section className="card px-5 py-5">
+          <section className="card px-5 py-5">
             <h3 className="font-serif text-lg text-ink-900 mb-3">Key people</h3>
             {submission.people.length === 0 ? (
               <p className="text-sm text-ink-400">No people flagged.</p>
@@ -412,28 +389,27 @@ export default async function ProgrammePage({ params }: PageProps) {
                     <span className="text-sm font-medium text-ink-900 block truncate">
                       {p.name}
                     </span>
-                    {p.note && (
+                    {p.note && p.note !== p.name && (
                       <p className="text-[11px] text-ink-500 mt-0.5">{p.note}</p>
                     )}
                   </li>
                 ))}
               </ul>
             )}
-            </section>
-          </div>
-        </div>
-
-        {submission.leadFreeText && (
-          <section className="px-1">
-            <p className="text-[9px] tracking-[0.14em] uppercase text-ink-400 mb-1">
-              In {submission.submittedBy}'s words
-            </p>
-            <p className="font-serif text-base text-ink-700 italic">
-              “{submission.leadFreeText}”
-            </p>
           </section>
-        )}
-      </main>
-    </div>
+        </div>
+      </div>
+
+      {submission.leadFreeText && (
+        <section className="px-1">
+          <p className="text-[9px] tracking-[0.14em] uppercase text-ink-400 mb-1">
+            In {submission.submittedBy}'s words
+          </p>
+          <p className="font-serif text-base text-ink-700 italic">
+            “{submission.leadFreeText}”
+          </p>
+        </section>
+      )}
+    </>
   );
 }
