@@ -54,21 +54,33 @@ const VIBE_EMPTY: Record<Vibe, string> = {
 /** Calm relief colour for the one empty state that should read as good news. */
 const RELIEF_TINT = { bg: "#3BA46A0D", border: "#3BA46A24" };
 
-export function VibeBoard({ entries }: { entries: BoardEntry[] }) {
+export function VibeBoard({
+  entries,
+  customerId
+}: {
+  entries: BoardEntry[];
+  customerId: string;
+}) {
   const { groups, awaiting } = computeBoard(entries);
 
   return (
     <div className="flex flex-col gap-3.5">
       {groups.map(({ vibe, entries: group }) => (
-        <MoodShelf key={vibe} vibe={vibe} entries={group} />
+        <MoodShelf key={vibe} vibe={vibe} entries={group} customerId={customerId} />
       ))}
-      {awaiting.length > 0 && <AwaitingRow entries={awaiting} />}
+      {awaiting.length > 0 && <AwaitingRow entries={awaiting} customerId={customerId} />}
     </div>
   );
 }
 
 /** The dashed "awaiting check-in" row — its own card so the masonry can flow it. */
-export function AwaitingRow({ entries }: { entries: BoardEntry[] }) {
+export function AwaitingRow({
+  entries,
+  customerId
+}: {
+  entries: BoardEntry[];
+  customerId: string;
+}) {
   if (entries.length === 0) return null;
   return (
     <div className="rounded-card border border-dashed border-sand-300 bg-cream/60 px-4 py-3 flex flex-wrap items-center gap-2">
@@ -78,7 +90,7 @@ export function AwaitingRow({ entries }: { entries: BoardEntry[] }) {
       {entries.map(({ programme, freshness }) => (
         <Link
           key={programme.id}
-          href={`/programme/${programme.id}`}
+          href={`/c/${customerId}/programme/${programme.id}`}
           className="inline-flex items-center gap-1.5 rounded-full bg-sand-100 hover:bg-sand-200 border border-sand-200 px-2.5 py-1 text-[11px] text-ink-500 transition"
         >
           <span
@@ -96,7 +108,15 @@ export function AwaitingRow({ entries }: { entries: BoardEntry[] }) {
   );
 }
 
-export function MoodShelf({ vibe, entries }: { vibe: Vibe; entries: BoardEntry[] }) {
+export function MoodShelf({
+  vibe,
+  entries,
+  customerId
+}: {
+  vibe: Vibe;
+  entries: BoardEntry[];
+  customerId: string;
+}) {
   const isRelief = vibe === "stuck" && entries.length === 0;
   const tint = isRelief ? RELIEF_TINT : VIBE_TINT[vibe];
   const whisper = entries.length === 0 && !isRelief ? VIBE_EMPTY[vibe] : VIBE_WHISPER[vibe];
@@ -143,12 +163,12 @@ export function MoodShelf({ vibe, entries }: { vibe: Vibe; entries: BoardEntry[]
         </p>
       ) : (
         <ul className="flex-1 min-w-0 flex flex-wrap gap-2.5">
-          {entries.map(({ programme, submission, unseen }) => {
+          {entries.map(({ programme, unseen }) => {
             return (
               <li key={programme.id} className="w-[172px] shrink-0">
                 <Link
-                  href={`/programme/${programme.id}`}
-                  className="block rounded-xl bg-cream border border-sand-200 px-3.5 py-2.5 shadow-card hover:shadow-hero hover:-translate-y-0.5 transition-all relative"
+                  href={`/c/${customerId}/programme/${programme.id}`}
+                  className="block rounded-xl bg-cream border border-sand-200 px-3.5 py-3 shadow-card hover:shadow-hero hover:-translate-y-0.5 transition-all relative"
                   style={{ borderLeft: `3px solid ${VIBE_COLOR[vibe]}` }}
                 >
                   {unseen && (
@@ -162,9 +182,6 @@ export function MoodShelf({ vibe, entries }: { vibe: Vibe; entries: BoardEntry[]
                   <span className="text-[13px] font-medium text-ink-900 truncate block">
                     {programme.shortName ?? programme.name}
                   </span>
-                  <p className="text-[10.5px] text-ink-400 truncate mt-0.5">
-                    {submission?.accountable ?? programme.lead}
-                  </p>
                   {programme.subProgrammes && programme.subProgrammes.length > 0 && (
                     <p className="text-[9.5px] text-ink-300 truncate mt-0.5">
                       incl. {programme.subProgrammes.join(", ")}

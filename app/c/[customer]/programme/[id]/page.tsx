@@ -12,7 +12,8 @@ import { VibeTrajectory } from "@/components/VibeTrajectory";
 import { JiraCard } from "@/components/JiraCard";
 import { ProgrammeViewTracker } from "@/components/ProgrammeViewTracker";
 import { ProgrammeBodySkeleton } from "@/components/Skeletons";
-import { getCustomer, programmesById, type Customer } from "@/lib/customers";
+import { getCustomer, type Customer } from "@/lib/customers";
+import { resolveProgrammes, byIdOf } from "@/lib/programme-store";
 import {
   actionKey,
   freshnessOf,
@@ -43,7 +44,7 @@ export default async function ProgrammePage({ params }: PageProps) {
   const { customer: cid, id } = await params;
   const customer = getCustomer(cid);
   if (!customer) return notFound();
-  const programme = programmesById(customer)[id];
+  const programme = byIdOf(await resolveProgrammes(customer))[id];
   if (!programme) return notFound();
 
   return (
@@ -366,6 +367,35 @@ async function ProgrammeBody({
             )}
           </section>
 
+          {submission.openTopics.length > 0 && (
+            <section className="card px-5 sm:px-6 py-5">
+              <h3 className="font-serif text-lg text-ink-900 mb-1">Discussion points</h3>
+              <p className="text-[11px] text-ink-400 mb-3">
+                Mark each as you handle it — the pulse board reflects the same.
+              </p>
+              <ul className="space-y-2.5">
+                {submission.openTopics.map((topic, i) => {
+                  const key = actionKey("topic", programme.id, topic.title);
+                  const state = ceoLog.actions[key];
+                  const status = state?.status ?? ("open" as const);
+                  const handled = state !== undefined;
+                  return (
+                    <li key={i} className="flex items-start justify-between gap-3">
+                      <p
+                        className={`flex-1 text-sm leading-snug ${
+                          handled ? "text-ink-400 line-through decoration-1" : "text-ink-800"
+                        }`}
+                      >
+                        {topic.title}
+                      </p>
+                      <ActionButtons actionKey={key} initialStatus={status} />
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
+
           <NoteToLead programmeId={programme.id} initialText={ceoNote?.text ?? ""} />
         </div>
 
@@ -381,9 +411,9 @@ async function ProgrammeBody({
               <p className="text-sm text-ink-400">No people flagged.</p>
             ) : (
               <ul className="space-y-2">
-                {submission.people.map((p) => (
+                {submission.people.map((p, i) => (
                   <li
-                    key={p.name}
+                    key={`${p.name}-${i}`}
                     className="px-3 py-2 rounded-lg bg-sand-50 border border-sand-200"
                   >
                     <span className="text-sm font-medium text-ink-900 block truncate">

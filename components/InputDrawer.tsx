@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { BabyElephant } from "@/components/BabyElephant";
 import { getCustomer, primaryCustomer } from "@/lib/customers";
 import { useCustomerId } from "@/lib/use-customer";
-import { VIBE_LABEL, type Attachment, type PulseSubmission, type Vibe } from "@/lib/types";
+import { VIBE_LABEL, type Attachment, type Programme, type PulseSubmission, type Vibe } from "@/lib/types";
 import { VIBE_COLOR, actionKey, relativeTime } from "@/lib/helpers";
 import type { ActionStatus, CeoLog } from "@/lib/ceo-store";
 
@@ -31,7 +31,7 @@ const VIBE_HELP: Record<Vibe, string> = {
 const FREE_TEXT_MIN = 20;
 const FREE_TEXT_MIN_DISTINCT_LETTERS = 5;
 const LINES_MAX = 6;
-const EMPTY_LOG: CeoLog = { actions: {}, views: {}, notes: {} };
+const EMPTY_LOG: CeoLog = { actions: {}, views: {}, notes: {}, leadViews: {} };
 
 /** One programme's in-progress check-in, held in memory until the batch submit. */
 interface Entry {
@@ -150,13 +150,14 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
   const cid = useCustomerId();
   const customer = getCustomer(cid) ?? primaryCustomer();
   const apiBase = `/api/c/${customer.id}`;
-  const programmes = customer.programmes;
   const submitter = customer.submitter || "the lead";
-  const byId: Record<string, (typeof programmes)[number]> = Object.fromEntries(
-    programmes.map((p) => [p.id, p])
-  );
 
-  const firstId = initialProgrammeId ?? programmes[0]?.id ?? "";
+  // Starts from config for an instant list, then swaps to the resolved list
+  // (config + any programmes the lead added) once it loads.
+  const [programmes, setProgrammes] = useState<Programme[]>(customer.programmes);
+  const byId: Record<string, Programme> = Object.fromEntries(programmes.map((p) => [p.id, p]));
+
+  const firstId = initialProgrammeId ?? customer.programmes[0]?.id ?? "";
   const [current, setCurrent] = useState(firstId);
   const [entries, setEntries] = useState<Record<string, Entry>>({});
   const [existingByProgramme, setExistingByProgramme] = useState<
@@ -174,14 +175,37 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  // Programmes the lead has looked at this session — clears the "new" badge
+  // optimistically. setSeenTick just forces a re-render when the ref changes.
+  const seenRef = useRef<Set<string>>(new Set());
+  const [, setSeenTick] = useState(0);
 
   const programme = byId[current] ?? programmes[0];
+
+  // Sreema's most recent activity on a programme (a note, or any action touch),
+  // so a "new" badge can surface a response before the lead opens that programme.
+  function ceoActivityAt(pid: string): string | null {
+    let latest: string | null = ceoLog.notes?.[pid]?.at ?? null;
+    for (const [k, st] of Object.entries(ceoLog.actions)) {
+      const parts = k.split("::");
+      if (parts[1] === pid && st.at && (!latest || st.at > latest)) latest = st.at;
+    }
+    return latest;
+  }
+  function isUnseen(pid: string): boolean {
+    if (seenRef.current.has(pid)) return false;
+    const at = ceoActivityAt(pid);
+    if (!at) return false;
+    const lv = ceoLog.leadViews?.[pid];
+    return !lv || at > lv;
+  }
 
   // Reset everything a moment after the drawer slides away, so reopening starts fresh.
   useEffect(() => {
     if (isOpen) return;
     const t = setTimeout(() => {
       includedRef.current = new Set();
+      seenRef.current = new Set();
       setIncluded(new Set());
       setEntries({});
       setExistingByProgramme({});
@@ -205,13 +229,21 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
     setLoading(true);
     Promise.all([
       fetch(`${apiBase}/submissions`).then((r) => (r.ok ? r.json() : {})),
-      fetch(`${apiBase}/ceo-log`).then((r) => (r.ok ? r.json() : EMPTY_LOG))
+      fetch(`${apiBase}/ceo-log`).then((r) => (r.ok ? r.json() : EMPTY_LOG)),
+      fetch(`${apiBase}/programmes`).then((r) => (r.ok ? r.json() : null))
     ])
-      .then(([subs, log]: [Record<string, PulseSubmission>, CeoLog]) => {
-        if (cancelled) return;
-        setExistingByProgramme(subs ?? {});
-        setCeoLog(log ?? EMPTY_LOG);
-      })
+      .then(
+        ([subs, log, prog]: [
+          Record<string, PulseSubmission>,
+          CeoLog,
+          { programmes?: Programme[] } | null
+        ]) => {
+          if (cancelled) return;
+          setExistingByProgramme(subs ?? {});
+          setCeoLog(log ?? EMPTY_LOG);
+          if (prog?.programmes && prog.programmes.length > 0) setProgrammes(prog.programmes);
+        }
+      )
       .catch(() => {
         if (!cancelled) {
           setExistingByProgramme({});
@@ -240,7 +272,22 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current, existingByProgramme, isOpen]);
 
+  // When the lead opens a programme carrying unseen activity, quietly mark it
+  // seen (locally + persisted), so its "new" badge clears once she's looking.
+  useEffect(() => {
+    if (!isOpen || !current || !isUnseen(current)) return;
+    seenRef.current.add(current);
+    setSeenTick((t) => t + 1);
+    fetch(`${apiBase}/ceo-log`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "leadView", programmeId: current })
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current, isOpen, ceoLog]);
+
   const cur = entries[current] ?? blankEntry(programme?.lead ?? "");
+  const unseenOthers = programmes.filter((p) => p.id !== current && isUnseen(p.id));
 
   function markTouched(pid: string) {
     if (!includedRef.current.has(pid)) {
@@ -439,6 +486,30 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
                 </div>
               )}
 
+              {/* New from Sreema — programmes with a note or response the lead
+                  hasn't opened yet, so she never misses a reply */}
+              {unseenOthers.length > 0 && (
+                <div className="px-4 py-3 rounded-lg bg-[#ECEAF7] border border-[#D0CBE2]">
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-[#6C6689] mb-1.5 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-coral animate-pulse" />
+                    New from Sreema
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {unseenOthers.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setCurrent(p.id)}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-cream border border-[#D0CBE2] px-2.5 py-1 text-xs text-ink-800 hover:border-coral hover:text-coral transition"
+                      >
+                        <span className="text-coral font-bold leading-none">!</span>
+                        {p.shortName ?? p.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Chips — everything filled this session, so nothing feels lost on switch */}
               {includedList.length > 0 && (
                 <div className="flex flex-wrap gap-2">
@@ -530,6 +601,7 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
                     <option key={p.id} value={p.id}>
                       {p.name}
                       {included.has(p.id) ? "  ✓ added" : ""}
+                      {isUnseen(p.id) ? "  • new from Sreema" : ""}
                     </option>
                   ))}
                 </select>
@@ -647,7 +719,7 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
                   <label className="block text-[10px] uppercase tracking-[0.14em] text-ink-400">
                     Files &amp; folders for Sreema (optional)
                   </label>
-                  <span className="text-[9px] text-ink-400">she can download these</span>
+                 
                 </div>
                 <p className="text-[11px] text-ink-500 mb-3">
                   Attach anything worth a look — a PDF, a spreadsheet, a deck. Got a whole folder?

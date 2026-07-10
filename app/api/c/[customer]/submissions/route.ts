@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getCustomer, programmesById } from "@/lib/customers";
+import { getCustomer } from "@/lib/customers";
+import { resolveProgrammes, byIdOf } from "@/lib/programme-store";
 import { readAllSubmissions, readSubmission, writeSubmission } from "@/lib/store";
 import { generateNarratives, type NarrativeInputWithId } from "@/lib/claude";
 import { fetchJiraSnapshot, jiraConfigured } from "@/lib/jira";
@@ -84,7 +85,7 @@ export async function POST(req: Request, ctx: RouteContext) {
   const { customer: cid } = await ctx.params;
   const customer = getCustomer(cid);
   if (!customer) return NextResponse.json({ error: "Unknown customer" }, { status: 404 });
-  const byId = programmesById(customer);
+  const byId = byIdOf(await resolveProgrammes(customer));
 
   let body: SubmitBody;
   try {
@@ -147,7 +148,7 @@ export async function POST(req: Request, ctx: RouteContext) {
       const programme = byId[entry.programmeId];
       const previous = await readSubmission(customer, entry.programmeId);
       let jira = previous?.jira ?? EMPTY_JIRA;
-      if (jiraConfigured()) {
+      if (jiraConfigured() && programme.jiraProjectKey) {
         try {
           jira = await fetchJiraSnapshot(programme.jiraProjectKey);
         } catch (err) {

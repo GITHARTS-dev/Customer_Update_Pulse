@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getCustomer, programmesById } from "@/lib/customers";
+import { getCustomer } from "@/lib/customers";
+import { resolveProgrammes, byIdOf } from "@/lib/programme-store";
 import { uploadFileToSiteDrive } from "@/lib/sharepoint";
 import type { Attachment } from "@/lib/types";
 
@@ -48,7 +49,7 @@ export async function POST(req: Request, ctx: RouteContext) {
   }
 
   const programmeId = String(form.get("programmeId") ?? "");
-  if (!programmesById(customer)[programmeId]) {
+  if (!byIdOf(await resolveProgrammes(customer))[programmeId]) {
     return NextResponse.json({ error: `Unknown programme: ${programmeId}` }, { status: 400 });
   }
 

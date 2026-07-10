@@ -5,9 +5,15 @@ import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { BabyElephant } from "@/components/BabyElephant";
-import { getCustomer, primaryCustomer, programmesById } from "@/lib/customers";
+import { getCustomer, primaryCustomer } from "@/lib/customers";
 import { useCustomerId } from "@/lib/use-customer";
-import { VIBE_LABEL, type Attachment, type PulseSubmission, type Vibe } from "@/lib/types";
+import {
+  VIBE_LABEL,
+  type Attachment,
+  type Programme,
+  type PulseSubmission,
+  type Vibe
+} from "@/lib/types";
 import { VIBE_COLOR, relativeTime } from "@/lib/helpers";
 
 const VIBE_HELP: Record<Vibe, string> = {
@@ -125,13 +131,18 @@ function LeadInputForm() {
   const router = useRouter();
   const cid = useCustomerId();
   const customer = getCustomer(cid) ?? primaryCustomer();
-  const programmes = customer.programmes;
-  const byId = programmesById(customer);
   const submitter = customer.submitter || "the lead";
   const apiBase = `/api/c/${customer.id}`;
+
+  // Config for an instant list, then the resolved list (config + custom).
+  const [programmes, setProgrammes] = useState<Programme[]>(customer.programmes);
+  const byId: Record<string, Programme> = Object.fromEntries(programmes.map((p) => [p.id, p]));
+
   const raw = searchParams.get("programme");
   const initialProgrammeId =
-    raw && programmes.some((p) => p.id === raw) ? raw : programmes[0]?.id ?? "";
+    raw && customer.programmes.some((p) => p.id === raw)
+      ? raw
+      : customer.programmes[0]?.id ?? "";
 
   const [current, setCurrent] = useState(initialProgrammeId);
   const [entries, setEntries] = useState<Record<string, Entry>>(() => ({
@@ -177,6 +188,23 @@ function LeadInputForm() {
       cancelled = true;
     };
   }, []);
+
+  // Load the resolved programme list (config + any added / minus removed), so
+  // the check-in and the manager below reflect the lead's own programmes.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${apiBase}/programmes`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { programmes?: Programme[] } | null) => {
+        if (!cancelled && data?.programmes && data.programmes.length > 0) {
+          setProgrammes(data.programmes);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
 
   // Load Sreema's notes back to the leads, so each programme shows any reply
   // waiting for them. This is the CEO side of the conversation.
@@ -819,6 +847,16 @@ function LeadInputForm() {
           </div>
         </form>
 
+        {/* Add or remove programmes for this customer */}
+        <div className="mt-4">
+          <ProgrammeManager
+            apiBase={apiBase}
+            programmes={programmes}
+            setProgrammes={setProgrammes}
+            disabled={submitting}
+          />
+        </div>
+
         {/* Current programme's section progress */}
         <div className="mt-4 flex items-center gap-3">
           <div className="flex items-center gap-1.5">
@@ -846,6 +884,207 @@ export default function LeadInputPage() {
     <Suspense fallback={<div className="min-h-screen bg-sand-100" />}>
       <LeadInputForm />
     </Suspense>
+  );
+}
+
+/**
+ * Add or remove this customer's programmes. Removal is optimistic with a short
+ * Undo window (persisted only once the window passes); adding takes a second
+ * confirm before it's created. All changes persist to the customer's own list.
+ */
+function ProgrammeManager({
+  apiBase,
+  programmes,
+  setProgrammes,
+  disabled
+}: {
+  apiBase: string;
+  programmes: Programme[];
+  setProgrammes: React.Dispatch<React.SetStateAction<Programme[]>>;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [lead, setLead] = useState("");
+  const [jira, setJira] = useState("");
+  const [confirmAdd, setConfirmAdd] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [pendingRemove, setPendingRemove] = useState<{
+    programme: Programme;
+    prev: Programme[];
+  } | null>(null);
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function commitRemove(programme: Programme) {
+    fetch(`${apiBase}/programmes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "remove", programmeId: programme.id })
+    }).catch(() => {});
+  }
+
+  function removeProgramme(p: Programme) {
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    // Commit any still-pending removal before starting a new one.
+    if (pendingRemove) commitRemove(pendingRemove.programme);
+    const prev = programmes;
+    setProgrammes(programmes.filter((x) => x.id !== p.id));
+    setPendingRemove({ programme: p, prev });
+    undoTimer.current = setTimeout(() => {
+      commitRemove(p);
+      setPendingRemove(null);
+      undoTimer.current = null;
+    }, 6000);
+  }
+
+  function undoRemove() {
+    if (undoTimer.current) {
+      clearTimeout(undoTimer.current);
+      undoTimer.current = null;
+    }
+    if (pendingRemove) setProgrammes(pendingRemove.prev);
+    setPendingRemove(null);
+  }
+
+  async function addProgramme() {
+    if (!confirmAdd) {
+      if (!name.trim()) {
+        setErr("A programme name is required.");
+        return;
+      }
+      setErr(null);
+      setConfirmAdd(true);
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch(`${apiBase}/programmes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "add", name, lead, jiraProjectKey: jira })
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Could not add programme.");
+      if (body.programme) setProgrammes((prev) => [...prev, body.programme as Programme]);
+      setName("");
+      setLead("");
+      setJira("");
+      setConfirmAdd(false);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field =
+    "w-full bg-cream border border-sand-200 rounded-lg px-3 py-2 text-sm text-ink-900 placeholder:text-ink-300 focus:outline-none focus:ring-2 focus:ring-coral/40";
+
+  return (
+    <section className="card px-5 py-4">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <span className="text-[10px] uppercase tracking-[0.14em] text-ink-400">
+          Manage programmes
+        </span>
+        <span className="text-[11px] text-ink-400">{open ? "hide" : `${programmes.length} · edit`}</span>
+      </button>
+
+      {open && (
+        <div className="mt-3 space-y-3">
+          {pendingRemove && (
+            <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-[#F8E7CC] border border-[#E8C685] text-[#7A4A0E] text-xs">
+              <span>
+                Removed <strong>{pendingRemove.programme.name}</strong>.
+              </span>
+              <button
+                type="button"
+                onClick={undoRemove}
+                className="font-medium underline hover:no-underline"
+              >
+                Undo
+              </button>
+            </div>
+          )}
+
+          <ul className="space-y-1.5">
+            {programmes.map((p) => (
+              <li
+                key={p.id}
+                className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-sand-50 border border-sand-200"
+              >
+                <span className="text-sm text-ink-800 truncate">{p.name}</span>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => removeProgramme(p)}
+                  className="text-[11px] text-ink-400 hover:text-crimson transition shrink-0 disabled:opacity-50"
+                  aria-label={`Remove ${p.name}`}
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          <div className="rounded-lg border border-dashed border-sand-300 px-3 py-3 space-y-2">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-ink-400">Add a programme</p>
+            <input
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setConfirmAdd(false);
+              }}
+              placeholder="Programme name"
+              className={field}
+            />
+            <div className="flex gap-2">
+              <input
+                value={lead}
+                onChange={(e) => setLead(e.target.value)}
+                placeholder="Lead (optional)"
+                className={`${field} flex-1`}
+              />
+              <input
+                value={jira}
+                onChange={(e) => setJira(e.target.value.toUpperCase())}
+                placeholder="Jira key"
+                className={`${field} w-28`}
+              />
+            </div>
+            {err && <p className="text-[11px] text-crimson">{err}</p>}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={addProgramme}
+                className="px-3.5 py-1.5 rounded-full bg-coral text-cream text-xs font-medium hover:bg-coral/90 transition disabled:opacity-60"
+              >
+                {busy
+                  ? "Adding…"
+                  : confirmAdd
+                    ? `Confirm add "${name.trim()}"`
+                    : "Add programme"}
+              </button>
+              {confirmAdd && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmAdd(false)}
+                  className="text-[11px] text-ink-400 hover:text-ink-700"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -6,7 +6,7 @@ import Image from "next/image";
 import { signOut } from "next-auth/react";
 import { CUSTOMERS, getCustomer, primaryCustomer } from "@/lib/customers";
 import { freshnessOf, isoWeek, safeVibe, shortDate, VIBE_COLOR } from "@/lib/helpers";
-import type { PulseSubmission } from "@/lib/types";
+import type { Programme, PulseSubmission } from "@/lib/types";
 
 interface SidebarProps {
   /** Which customer is currently open (its programmes expand beneath it). */
@@ -14,16 +14,31 @@ interface SidebarProps {
   activeProgrammeId?: string;
   /** Latest submission per programme, for the active customer's status dots. */
   submissionsByProgramme?: Record<string, PulseSubmission>;
+  /**
+   * The active customer's resolved programme list (config + custom). When
+   * absent (loading fallback) the active customer's config programmes are used.
+   */
+  programmes?: Programme[];
 }
 
 /** The HARTS heart-cluster rainbow, as one thin woven thread (platform brand). */
 const RAINBOW =
   "linear-gradient(90deg, #D6473F 0%, #E8A020 28%, #3BA46A 55%, #3E8FCF 78%, #6C47E8 100%)";
 
+// Same order the home mood board uses, so the sidebar's coloured dots read
+// top-to-bottom in the same sequence as the shelves.
+const VIBE_RANK: Record<string, number> = {
+  going_well: 0,
+  watch_it: 1,
+  stuck: 2,
+  quiet_week: 3
+};
+
 export function Sidebar({
   activeCustomerId,
   activeProgrammeId,
-  submissionsByProgramme = {}
+  submissionsByProgramme = {},
+  programmes
 }: SidebarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [nowLabel, setNowLabel] = useState<string | null>(null);
@@ -55,6 +70,15 @@ export function Sidebar({
   // as a sensible default for transient/loading states.
   const brandCustomer =
     (activeCustomerId ? getCustomer(activeCustomerId) : undefined) ?? primaryCustomer();
+
+  // Order a programme by its current vibe, matching the home mood board:
+  // fresh going-well → watch → stuck → quiet, then stale, then not-yet-in.
+  function programmeRank(id: string): number {
+    const s = submissionsByProgramme[id];
+    const f = freshnessOf(s?.submittedAt);
+    if (s && f === "fresh") return VIBE_RANK[safeVibe(s.vibe)] ?? 3;
+    return f === "stale" ? 10 : 11;
+  }
 
   const navContent = (
     <>
@@ -99,6 +123,9 @@ export function Sidebar({
         <ul className="space-y-1.5">
           {CUSTOMERS.map((c) => {
             const isActiveCustomer = c.id === activeCustomerId;
+            // The active customer shows its resolved list (config + custom);
+            // others just use config (they're collapsed anyway).
+            const list = isActiveCustomer && programmes ? programmes : c.programmes;
             return (
               <li key={c.id}>
                 <Link
@@ -122,10 +149,12 @@ export function Sidebar({
                   )}
                 </Link>
 
-                {/* Active customer's programmes */}
-                {isActiveCustomer && c.programmes.length > 0 && (
+                {/* Active customer's programmes, ordered by vibe like the board */}
+                {isActiveCustomer && list.length > 0 && (
                   <ul className="mt-1 ml-3 pl-3 border-l border-sand-200 space-y-0.5">
-                    {c.programmes.map((p) => {
+                    {[...list]
+                      .sort((a, b) => programmeRank(a.id) - programmeRank(b.id))
+                      .map((p) => {
                       const s = submissionsByProgramme[p.id];
                       const f = freshnessOf(s?.submittedAt);
                       const dotColor =

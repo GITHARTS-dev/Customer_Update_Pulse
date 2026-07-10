@@ -18,6 +18,7 @@ import {
 } from "@/lib/helpers";
 import { readAllSubmissions } from "@/lib/store";
 import { readCeoLog } from "@/lib/ceo-store";
+import { resolveProgrammes } from "@/lib/programme-store";
 import type { OpenTopic, Vibe } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -37,12 +38,12 @@ interface AttentionItem {
  * three independent Suspense children — share ONE SharePoint read.
  */
 const loadDashboard = cache(async (customer: Customer) => {
-  const [submissionsByProgramme, ceoLog] = await Promise.all([
+  const [submissionsByProgramme, ceoLog, programmes] = await Promise.all([
     readAllSubmissions(customer),
-    readCeoLog(customer)
+    readCeoLog(customer),
+    resolveProgrammes(customer)
   ]);
 
-  const programmes = customer.programmes;
   const total = programmes.length;
   const vibeCounts: Record<Vibe, number> = {
     going_well: 0,
@@ -183,6 +184,7 @@ const loadDashboard = cache(async (customer: Customer) => {
     boardEntries,
     attentionItems,
     ceoLog,
+    programmes,
     freshCount,
     total
   };
@@ -193,11 +195,10 @@ export default async function PulsePage({ params }: PageProps) {
   const customer = getCustomer(cid);
   if (!customer) notFound();
 
-  if (customer.comingSoon || customer.programmes.length === 0) {
+  if (customer.comingSoon) {
     return <ComingSoon customer={customer} />;
   }
 
-  const total = customer.programmes.length;
   const who = customer.shortName ?? customer.name;
 
   return (
@@ -237,7 +238,7 @@ export default async function PulsePage({ params }: PageProps) {
               </defs>
             </svg>
             <p className="mt-1 text-sm text-ink-500">
-              Here's how {who}'s {total} programmes are feeling this week.
+              Here's how {who}'s programmes are feeling this week.
             </p>
           </div>
           <div className="w-full lg:w-[480px] lg:shrink-0">
@@ -277,25 +278,25 @@ async function HeroAndBoard({ customer }: { customer: Customer }) {
       <MoodHero headline={headline} supporting={supporting} vibe={overall} />
       <section className="flex flex-col">
         <div className="flex flex-wrap items-baseline justify-between gap-y-1 mb-2.5">
-          <h2 className="font-serif text-xl text-ink-900">Programmes, by feeling</h2>
+          <h2 className="font-serif text-xl text-ink-900">Weekly Programme Health</h2>
           <span className="text-[10px] text-ink-400">
             {freshCount} checked in
             {total - freshCount > 0 && ` · ${total - freshCount} awaiting`}
           </span>
         </div>
-        <VibeBoard entries={boardEntries} />
+        <VibeBoard entries={boardEntries} customerId={customer.id} />
       </section>
     </>
   );
 }
 
 async function AttentionSection({ customer }: { customer: Customer }) {
-  const { attentionItems, ceoLog } = await loadDashboard(customer);
+  const { attentionItems, ceoLog, programmes } = await loadDashboard(customer);
   return (
     <AttentionBand
       items={attentionItems}
       ceoLog={ceoLog}
-      programmes={customer.programmes}
+      programmes={programmes}
       customerId={customer.id}
     />
   );

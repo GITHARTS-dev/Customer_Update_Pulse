@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCustomer } from "@/lib/customers";
-import { readCeoLog, setAction, setNote, setView } from "@/lib/ceo-store";
+import { readCeoLog, setAction, setLeadView, setNote, setView } from "@/lib/ceo-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +35,13 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       return NextResponse.json({ error: "programmeId required" }, { status: 400 });
     }
     await setView(customer, body.programmeId);
+    return NextResponse.json({ ok: true });
+  }
+  if (body.type === "leadView") {
+    if (typeof body.programmeId !== "string") {
+      return NextResponse.json({ error: "programmeId required" }, { status: 400 });
+    }
+    await setLeadView(customer, body.programmeId);
     return NextResponse.json({ ok: true });
   }
   if (body.type === "note") {

@@ -1,16 +1,15 @@
 import "server-only";
 import { cache } from "react";
-import type { OpenTopic, PersonSignal, PulseSubmission } from "./types";
+import type { OpenTopic, PersonSignal, Programme, PulseSubmission } from "./types";
 import type { Customer } from "./customers";
-import { programmesById } from "./customers";
 import { submissionsListIdFor } from "./customer-lists";
+import { fetchSubmissionsListItems } from "./submissions-fetch";
+import { resolveProgrammes, byIdOf } from "./programme-store";
 import { isOperationalSignal, parsePeopleNote, personToLine, safeVibe } from "./helpers";
 import { buildNameList, redactNames } from "./redact";
 import {
-  fetchSharePointListItems,
   updateSharePointListItemFields,
-  writeSharePointListItem,
-  type SharePointListItem
+  writeSharePointListItem
 } from "./sharepoint";
 
 /**
@@ -22,6 +21,9 @@ import {
  */
 
 const SITE_ID = process.env.SHAREPOINT_SITE_ID ?? "";
+
+/** Programme lookup used when mapping rows — the resolved list (config + custom). */
+type ProgrammeMap = Record<string, Programme>;
 
 const COL = {
   title: "Title",
@@ -55,8 +57,8 @@ function topicsToText(topics: OpenTopic[]): string {
 }
 
 /** Builds the SharePoint field set for a submission (all columns we own). */
-function submissionToFields(sub: PulseSubmission, customer: Customer): Record<string, unknown> {
-  const programmeName = programmesById(customer)[sub.programmeId]?.name ?? sub.programmeId;
+function submissionToFields(sub: PulseSubmission, byId: ProgrammeMap): Record<string, unknown> {
+  const programmeName = byId[sub.programmeId]?.name ?? sub.programmeId;
   return {
     [COL.title]: `${programmeName} — week ${sub.weekNumber}`,
     [COL.submittedBy]: sub.submittedBy,
@@ -95,9 +97,8 @@ function asNumber(v: unknown): number {
  */
 function rowToSubmission(
   fields: Record<string, unknown>,
-  customer: Customer
+  byId: ProgrammeMap
 ): PulseSubmission | null {
-  const byId = programmesById(customer);
   const programmeId = asString(fields[COL.programmeId]).trim();
   if (!programmeId || !byId[programmeId]) return null;
 
@@ -168,30 +169,18 @@ function rowToSubmission(
   return sub;
 }
 
-/**
- * The one live network call this module makes, keyed (and cached) by list id so
- * that however many times a customer's list is read within a single request
- * (current state + trend history + CEO log), SharePoint is fetched only once
- * per list.
- */
-export const fetchSubmissionsListItems = cache(
-  async (listId: string): Promise<SharePointListItem[]> => {
-    const res = await fetchSharePointListItems(SITE_ID, listId);
-    if (!res.ok) {
-      throw new Error(`SharePoint read failed (${res.reason}${res.status ? " " + res.status : ""})`);
-    }
-    return res.data.value;
-  }
-);
-
 /** Every submission row for a customer, across all weeks (used by trends). */
 export const readAllSubmissionRows = cache(
   async (customer: Customer): Promise<PulseSubmission[]> => {
     if (!configured(customer)) return [];
-    const rows = await fetchSubmissionsListItems(submissionsListIdFor(customer.id));
+    const [rows, programmes] = await Promise.all([
+      fetchSubmissionsListItems(submissionsListIdFor(customer.id)),
+      resolveProgrammes(customer)
+    ]);
+    const byId = byIdOf(programmes);
     const out: PulseSubmission[] = [];
     for (const row of rows) {
-      const sub = rowToSubmission(row.fields, customer);
+      const sub = rowToSubmission(row.fields, byId);
       if (sub) out.push(sub);
     }
     return out;
@@ -240,7 +229,7 @@ export async function writeSubmission(
       `SharePoint is not configured for ${customer.name} (SHAREPOINT_SITE_ID / submissions list).`
     );
   }
-  const fields = submissionToFields(submission, customer);
+  const fields = submissionToFields(submission, byIdOf(await resolveProgrammes(customer)));
 
   const rows = await fetchSubmissionsListItems(listId);
   const existing = rows.find(

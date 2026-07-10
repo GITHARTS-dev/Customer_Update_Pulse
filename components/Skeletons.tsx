@@ -40,7 +40,7 @@ export function HeroBoardSkeleton() {
 
       <section className="flex flex-col">
         <div className="flex items-baseline justify-between mb-2.5">
-          <h2 className="font-serif text-xl text-ink-900">Programmes, by feeling</h2>
+          <h2 className="font-serif text-xl text-ink-900">All Programmes</h2>
         </div>
         <div className="flex flex-col gap-3.5">
           {[0, 1, 2, 3].map((i) => (

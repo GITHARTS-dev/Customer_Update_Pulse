@@ -1,0 +1,26 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.DS_Store
+Thumbs.db
+coverage/
+.vscode/
+.idea/
+
+# Azure Static Web Apps / Functions local config - secrets live here
+local.settings.json
+api/local.settings.json
+.azure/
+.swa/
+
+# Invoice workbooks must never ship in the repo or the bundle
+*.xlsx
+*.xls
+.claude/worktrees/
+.claude/

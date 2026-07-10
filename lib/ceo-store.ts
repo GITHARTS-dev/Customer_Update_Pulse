@@ -7,7 +7,7 @@ import {
   writeSharePointListItem,
   type SharePointListItem
 } from "./sharepoint";
-import { fetchSubmissionsListItems } from "./store";
+import { fetchSubmissionsListItems } from "./submissions-fetch";
 import { submissionsListIdFor } from "./customer-lists";
 import type { Customer } from "./customers";
 
@@ -29,6 +29,12 @@ export interface CeoLog {
   views: Record<string, string>;
   /** Keyed by programmeId — Sreema's latest note to that programme's lead. */
   notes: Record<string, CeoNote>;
+  /**
+   * Keyed by programmeId — when the LEAD last opened that programme in the
+   * check-in flow. Lets the lead see a "new" badge on programmes where Sreema's
+   * note or actions are more recent than this, so nothing goes unnoticed.
+   */
+  leadViews: Record<string, string>;
 }
 
 /**
@@ -48,7 +54,7 @@ const SITE_ID = process.env.SHAREPOINT_SITE_ID ?? "";
 /** Title of the single row/item that holds the entire log. */
 const MARKER = "__ceo_log__";
 
-const EMPTY_LOG: CeoLog = { actions: {}, views: {}, notes: {} };
+const EMPTY_LOG: CeoLog = { actions: {}, views: {}, notes: {}, leadViews: {} };
 
 function usesSharePoint(customer: Customer): boolean {
   return Boolean(SITE_ID && submissionsListIdFor(customer.id));
@@ -59,7 +65,8 @@ function normalize(parsed: Partial<CeoLog> | null | undefined): CeoLog {
   return {
     actions: parsed?.actions ?? {},
     views: parsed?.views ?? {},
-    notes: parsed?.notes ?? {}
+    notes: parsed?.notes ?? {},
+    leadViews: parsed?.leadViews ?? {}
   };
 }
 
@@ -168,6 +175,13 @@ export async function setAction(
 export async function setView(customer: Customer, programmeId: string): Promise<void> {
   await mutate(customer, (log) => {
     log.views[programmeId] = new Date().toISOString();
+  });
+}
+
+/** The lead has opened this programme in the check-in flow — clears its "new" badge. */
+export async function setLeadView(customer: Customer, programmeId: string): Promise<void> {
+  await mutate(customer, (log) => {
+    log.leadViews[programmeId] = new Date().toISOString();
   });
 }
 

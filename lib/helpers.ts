@@ -185,13 +185,21 @@ export function parsePersonLine(line: string): { name: string; note?: string } {
   return { name, note };
 }
 
-/** Parses a whole people-signals field (one person per line) into structured signals. */
+/**
+ * Parses a whole people-signals field (one person per line) into structured
+ * signals, deduplicated by name. The same person listed twice — whether the
+ * lead typed it, or an earlier submission's pre-fill compounded it — collapses
+ * to a single entry, so "Key people" is always a clean list of distinct people.
+ * If a later mention adds a note the first lacked, that note is kept.
+ */
 export function parsePeopleNote(raw: string): PersonSignal[] {
   const lines = raw
     .split(/\n|;/)
     .map((l) => l.trim())
     .filter(Boolean);
-  return lines.slice(0, PEOPLE_LINES_MAX).map((line) => {
+
+  const byName = new Map<string, PersonSignal>();
+  for (const line of lines) {
     const lower = line.toLowerCase();
     const signal: PersonSignal["signal"] = PERSON_WATCH_RE.test(lower)
       ? "watch"
@@ -199,8 +207,16 @@ export function parsePeopleNote(raw: string): PersonSignal[] {
         ? "warm"
         : "neutral";
     const { name, note } = parsePersonLine(line);
-    return { name, signal, note };
-  });
+    const key = name.toLowerCase();
+    const existing = byName.get(key);
+    if (!existing) {
+      if (byName.size >= PEOPLE_LINES_MAX) continue;
+      byName.set(key, { name, signal, note });
+    } else if (!existing.note && note) {
+      existing.note = note;
+    }
+  }
+  return Array.from(byName.values());
 }
 
 /** Formats a person back to one storage/prefill line — the inverse of parsePersonLine. */
