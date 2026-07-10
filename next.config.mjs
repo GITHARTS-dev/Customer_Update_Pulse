@@ -6,11 +6,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // NOTE: do NOT set `output: "standalone"` here. Azure Static Web Apps' hybrid
-  // Next.js support builds the standard `.next` output and wires the server to
-  // its own managed backend, tracing only the runtime deps itself. Setting
-  // "standalone" makes Next emit a self-contained server SWA doesn't run, so no
-  // SSR handler serves requests and every dynamic route (including "/") 404s.
+  // Deployed to Azure Static Web Apps' hybrid Next.js support, which builds the
+  // standard `.next` output — do NOT set `output: "standalone"` (SWA doesn't run
+  // that self-contained server; every route 404s if you do).
   //
   // Pin the file-tracing root to this folder so Next's tracer doesn't walk up
   // to the drive root (on Windows it would scan D:\pagefile.sys etc. and throw

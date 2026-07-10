@@ -1,9 +1,17 @@
 import { notFound } from "next/navigation";
-import { getCustomer } from "@/lib/customers";
+import { CUSTOMERS, getCustomer } from "@/lib/customers";
 
 interface LayoutProps {
   children: React.ReactNode;
   params: Promise<{ customer: string }>;
+}
+
+// Enumerate the customer paths so Azure SWA registers and serves this dynamic
+// segment (and everything under it — pulse, input, programme). Without this,
+// SWA doesn't know /c/<id> exists and returns its static 404. The pages stay
+// force-dynamic, so this only registers the routes; data is still live.
+export function generateStaticParams() {
+  return CUSTOMERS.map((c) => ({ customer: c.id }));
 }
 
 /**

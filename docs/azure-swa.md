@@ -1,5 +1,19 @@
 # Deploying to Azure Static Web Apps
 
+> **The two rules that make dynamic routes work on SWA (learned the hard way):**
+>
+> 1. **Do NOT set `output: "standalone"`.** SWA's hybrid Next.js builds the
+>    standard `.next` output and runs the server itself. Standalone makes Next
+>    emit a server SWA doesn't run → every route 404s.
+> 2. **Every dynamic route segment (`[customer]`, `[id]`) MUST export
+>    `generateStaticParams`** listing its known paths, even though the pages are
+>    `force-dynamic`. SWA only routes a dynamic segment it has been told exists;
+>    without `generateStaticParams` it doesn't know `/c/evora` is a route and
+>    serves its static 404. `force-dynamic` still applies, so the pages render
+>    live at request time — `generateStaticParams` only *registers* the paths.
+>    (Programmes added at runtime aren't in the list, so their individual detail
+>    page may 404 on SWA until the next deploy; the pulse board still shows them.)
+
 This app is built to run on Azure Static Web Apps (SWA) **Free plan**. The one
 rule SWA imposes that shaped the architecture: **the filesystem is read-only at
 runtime** — nothing can be written to disk. That is why *all* persistent state

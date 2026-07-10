@@ -12,7 +12,7 @@ import { VibeTrajectory } from "@/components/VibeTrajectory";
 import { JiraCard } from "@/components/JiraCard";
 import { ProgrammeViewTracker } from "@/components/ProgrammeViewTracker";
 import { ProgrammeBodySkeleton } from "@/components/Skeletons";
-import { getCustomer, type Customer } from "@/lib/customers";
+import { CUSTOMERS, getCustomer, type Customer } from "@/lib/customers";
 import { resolveProgrammes, byIdOf } from "@/lib/programme-store";
 import {
   actionKey,
@@ -29,6 +29,16 @@ import { readProgrammeHistory } from "@/lib/history-store";
 import { VIBE_LABEL, type Programme, type SignalKind } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+// Enumerate customer + programme paths so Azure SWA registers and serves this
+// nested dynamic route (config programmes). Pages stay force-dynamic (live
+// data); this just registers the routes so SWA doesn't 404 them. Programmes a
+// lead adds at runtime render on demand (dynamicParams stays on by default).
+export function generateStaticParams() {
+  return CUSTOMERS.flatMap((c) =>
+    c.programmes.map((p) => ({ customer: c.id, id: p.id }))
+  );
+}
 
 interface PageProps {
   params: Promise<{ customer: string; id: string }>;
