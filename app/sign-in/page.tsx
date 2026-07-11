@@ -1,13 +1,14 @@
 import Image from "next/image";
+import { Suspense } from "react";
 import { SignInButton } from "@/components/SignInButton";
 
-export default async function SignInPage({
-  searchParams
-}: {
-  searchParams: Promise<{ callbackUrl?: string }>;
-}) {
-  const { callbackUrl } = await searchParams;
-
+/**
+ * Static on purpose. It reads no server-side data (the callbackUrl is read
+ * client-side in SignInButton), so Azure SWA serves it as a plain static file
+ * and never routes it through the auth middleware — which is what caused the
+ * /sign-in redirect loop when this page was server-rendered.
+ */
+export default function SignInPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-[#F4F2FC] to-cream px-4">
       <div className="w-full max-w-sm rounded-card bg-cream border border-sand-200 shadow-hero p-8 flex flex-col items-center gap-5 text-center">
@@ -38,7 +39,15 @@ export default async function SignInPage({
           </p>
         </div>
 
-        <SignInButton callbackUrl={callbackUrl || "/"} />
+        <Suspense
+          fallback={
+            <div className="w-full rounded-lg bg-violet/60 text-white py-2.5 text-sm font-medium">
+              Sign in with Microsoft
+            </div>
+          }
+        >
+          <SignInButton />
+        </Suspense>
       </div>
     </div>
   );

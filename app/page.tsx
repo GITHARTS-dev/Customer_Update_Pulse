@@ -1,14 +1,25 @@
-import { redirect } from "next/navigation";
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { primaryCustomer } from "@/lib/customers";
 
-// Must stay a runtime (server) route, NOT a statically-prerendered redirect.
-// On Azure SWA a static-optimized redirect at "/" isn't wired to anything
-// servable, so SWA serves its 404 fallback instead of routing "/" to SSR.
-// force-dynamic makes "/" a server route: SSR runs and issues the redirect.
-export const dynamic = "force-dynamic";
-
-// The platform root sends you straight into the primary customer's pulse; the
-// sidebar lists every customer so you can switch from there.
+/**
+ * The platform root. Deliberately a STATIC client page (not a server redirect):
+ * on Azure SWA a server/dynamic root gets routed through middleware and loops,
+ * and a statically-optimized `redirect()` isn't served at all (404). A static
+ * page IS served directly by SWA, and the client then bounces into the primary
+ * customer's pulse — which is a registered route the SSR backend serves.
+ */
 export default function RootPage() {
-  redirect(`/c/${primaryCustomer().id}`);
+  const router = useRouter();
+  useEffect(() => {
+    router.replace(`/c/${primaryCustomer().id}`);
+  }, [router]);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center text-sm text-ink-400">
+      Loading…
+    </div>
+  );
 }

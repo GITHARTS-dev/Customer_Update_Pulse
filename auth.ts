@@ -66,6 +66,10 @@ function refreshAccessTokenOnce(refreshToken: string): Promise<RefreshedTokens> 
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  // Behind Azure SWA's proxy the forwarded host must be trusted, or NextAuth
+  // throws UntrustedHost on every session check. (AUTH_URL should also be set
+  // to the deployed origin in the SWA environment variables.)
+  trustHost: true,
   providers: [
     MicrosoftEntraID({
       clientId: CLIENT_ID,
