@@ -270,6 +270,7 @@ async function KpiSection({ customer }: { customer: Customer }) {
   return <KpiStats stats={stats} />;
 }
 
+
 async function HeroAndBoard({ customer }: { customer: Customer }) {
   const { headline, supporting, overall, boardEntries, freshCount, total } =
     await loadDashboard(customer);
