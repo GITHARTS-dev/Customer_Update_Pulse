@@ -46,7 +46,13 @@
       "Bash(node -e \"console.log\\(require\\('crypto'\\).randomBytes\\(32\\).toString\\('base64'\\)\\)\")",
       "Bash(xargs grep -l \"export async function signIn\")",
       "Bash(ls -la data)",
-      "Bash(git ls-files *)"
+      "Bash(git ls-files *)",
+      "PowerShell(Get-CimInstance Win32_Process -Filter \"Name = 'node.exe'\" | Where-Object { $_.CommandLine -match \"hartss-evora|standalone|next|npm-cli\" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Seconds 2; if \\(Test-Path .next\\) { Remove-Item -Recurse -Force .next -ErrorAction SilentlyContinue }; if \\(Test-Path .next\\) { Write-Output \".next busy\" } else { Write-Output \".next clean\" })",
+      "Bash(grep -o '\\\\\\\\\\\\\\\\.swa' middleware.ts)",
+      "Bash(git push *)",
+      "PowerShell(Get-CimInstance Win32_Process -Filter \"Name = 'node.exe'\" | Where-Object { $_.CommandLine -match \"hartss-evora|standalone|next|npm-cli\" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Seconds 2; if \\(Test-Path .next\\) { Remove-Item -Recurse -Force .next -ErrorAction SilentlyContinue }; Write-Output \"cleaned\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ],
     "additionalDirectories": [
       "d:\\Harts-projects\\hartss-evora-pulse\\app\\programme",

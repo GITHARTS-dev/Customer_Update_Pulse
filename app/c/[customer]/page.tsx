@@ -100,8 +100,8 @@ const loadDashboard = cache(async (customer: Customer) => {
   const headline = emotionalOneLiner(vibeCounts, freshCount);
   const supporting =
     stale + missing === 0
-      ? `All ${total} leads checked in this week.`
-      : `${freshCount} of ${total} leads checked in this week. ${stale} stale, ${missing} not yet in.`;
+      ? `All ${total} programmes checked in this week.`
+      : `${freshCount} of ${total} programmes checked in this week. ${stale} stale, ${missing} not yet in.`;
 
   const attentionItems: AttentionItem[] = programmes.flatMap((p) => {
     const s = submissionsByProgramme[p.id];

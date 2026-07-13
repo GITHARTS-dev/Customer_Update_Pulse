@@ -70,7 +70,7 @@ export function emotionalOneLiner(
   freshCount: number
 ): string {
   if (freshCount === 0) {
-    return "The week is still settling in. The elephants are waiting to hear from everyone.";
+    return "The week is still settling in. The elephants are waiting to hear from you.";
   }
   const { going_well: well, watch_it: watch, stuck, quiet_week: quiet } = counts;
 

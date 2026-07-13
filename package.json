@@ -7,6 +7,7 @@
   },
   "scripts": {
     "dev": "next dev",
+    "build:invoice": "node scripts/build-invoice.mjs",
     "build": "next build && node scripts/copy-standalone-assets.mjs",
     "start": "next start",
     "lint": "next lint",

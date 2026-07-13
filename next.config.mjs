@@ -16,7 +16,17 @@ const nextConfig = {
   // Pin the file-tracing root to this folder so Next's tracer doesn't walk up
   // to the drive root (on Windows it would scan D:\pagefile.sys etc. and throw
   // EINVAL); harmless and correct on the Linux CI runner too.
-  outputFileTracingRoot: __dirname
+  outputFileTracingRoot: __dirname,
+  // The Invoice Dashboard (a separate Vite SPA) is served as static files under
+  // public/invoice/. Requests to /invoice/assets/* hit those files directly,
+  // but bare /invoice and /invoice/ have no static file, so map them to the
+  // SPA's entry document. This is the only routing this app adds for it.
+  async rewrites() {
+    return [
+      { source: "/invoice", destination: "/invoice/index.html" },
+      { source: "/invoice/", destination: "/invoice/index.html" }
+    ];
+  }
 };
 
 export default nextConfig;

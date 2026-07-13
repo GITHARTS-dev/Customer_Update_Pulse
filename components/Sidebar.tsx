@@ -207,11 +207,18 @@ export function Sidebar({
       <div className="px-5 py-3 border-t border-sand-200 text-[10px] text-ink-400">
         <span suppressHydrationWarning>{nowLabel ?? " "}</span>
       </div>
-      <div className="px-5 py-2.5 border-t border-sand-200">
+      <div className="px-5 py-3 border-t border-sand-200 flex items-center gap-2">
+        <Link
+          href="/"
+          onClick={() => setMobileOpen(false)}
+          className="inline-flex items-center justify-center rounded-lg border border-sand-200 px-3 py-1.5 text-[10px] font-medium text-ink-500 hover:border-coral/40 hover:bg-coral/5 hover:text-coral transition"
+        >
+          ← Apps
+        </Link>
         <button
           type="button"
           onClick={() => signOut({ callbackUrl: "/sign-in" })}
-          className="text-[10px] text-ink-400 hover:text-coral transition"
+          className="inline-flex items-center justify-center rounded-lg border border-sand-200 px-3 py-1.5 text-[10px] font-medium text-ink-500 hover:border-coral/40 hover:bg-coral/5 hover:text-coral transition"
         >
           Sign out
         </button>

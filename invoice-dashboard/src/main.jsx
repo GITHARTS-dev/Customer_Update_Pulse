@@ -1,17 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { PublicClientApplication } from "@azure/msal-browser";
-import { MsalProvider } from "@azure/msal-react";
 import App from "./App.jsx";
-import { msalConfig } from "./authConfig.js";
 import "./styles.css";
 
-const msalInstance = new PublicClientApplication(msalConfig);
-
-msalInstance.initialize().then(() => {
-  ReactDOM.createRoot(document.getElementById("root")).render(
-    <MsalProvider instance={msalInstance}>
-      <App />
-    </MsalProvider>
-  );
-});
+// No MSAL here anymore. Auth is unified at the HARTS launchpad: reaching
+// /invoice already required a NextAuth sign-in, and Graph is read through a
+// same-origin server proxy that uses that session. So this SPA just renders.
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);

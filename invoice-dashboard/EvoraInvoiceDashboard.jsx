@@ -8,8 +8,6 @@ import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
 } from "recharts";
 import { AlertTriangle } from "lucide-react";
-import { useMsal } from "@azure/msal-react";
-import { GRAPH_SCOPES, SHAREPOINT_SHARE_URL } from "./src/authConfig.js";
 
 const hartsLogoUrl = new URL("./logos/harts.png", import.meta.url).href;
 
@@ -19,88 +17,7 @@ const CUSTOMERS = [
   { key: "evora", label: "Evora", logo: evoraLogoUrl },
 ];
 
-// `key` must be unique across every sheet/year (it's the identifier used for month
-// selection everywhere) — keep it equal to `sheet` so adding a past year (e.g. Jan25)
-// never collides with the same month abbreviation in another year (e.g. Jan26).
-const MONTHLY_SHEETS = [
-  { key: "Jan26", sheet: "Jan26", label: "January 2026",  shortLabel: "Jan 2026" },
-  { key: "Feb26", sheet: "Feb26", label: "February 2026", shortLabel: "Feb 2026" },
-  { key: "Mar26", sheet: "Mar26", label: "March 2026",    shortLabel: "Mar 2026" },
-  { key: "Apr26", sheet: "Apr26", label: "April 2026",    shortLabel: "Apr 2026" },
-  { key: "May26", sheet: "May26", label: "May 2026",      shortLabel: "May 2026" },
-  { key: "Jun26", sheet: "Jun26", label: "June 2026",     shortLabel: "Jun 2026" },
-];
-
-const num = (v) => {
-  if (v == null || v === "") return 0;
-  const n = Number(String(v).replace(/[€₹,\s]/g, ""));
-  return isFinite(n) ? n : 0;
-};
-
-const formatPersonName = (name) => {
-  const raw = String(name ?? "").trim();
-  if (!raw) return "";
-  if (!raw.includes(".") || raw.includes(" ")) return raw;
-  return raw.split(".").filter(Boolean)
-    .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(" ");
-};
-
 const isExcludedProject = (name) => String(name ?? "").trim().toLowerCase() === "travel";
-
-function parseRows(rows, monthLabel) {
-  if (!rows || !rows.length) return null;
-  const billing = [];
-  let current = null, totalRevenue = 0;
-  for (let i = 1; i < rows.length; i++) {
-    const r = rows[i] || [];
-    const a = String(r[0] ?? "").trim();
-    const cLabel = String(r[2] ?? "").toLowerCase();
-    if (cLabel.includes("total") || cLabel === "sum") {
-      if (cLabel.includes("service fee")) { totalRevenue = num(r[4]); break; }
-      continue;
-    }
-    if (!a) continue;
-    const hours = num(r[1]), rate = num(r[3]), total = num(r[4]);
-    if (!hours && !rate && !total) {
-      current = { name: formatPersonName(a), projects: [] };
-      billing.push(current); continue;
-    }
-    if (!current) continue;
-    const days = num(r[2]) || (hours ? hours / 8 : 0);
-    if (isExcludedProject(a)) continue;
-    current.projects.push({ name: a || "Unspecified", hours, days, dailyRate: rate, revenue: total });
-  }
-  billing.forEach((p) => {
-    p.hours = p.projects.reduce((s, x) => s + x.hours, 0);
-    p.days = p.projects.reduce((s, x) => s + x.days, 0);
-    p.revenue = p.projects.reduce((s, x) => s + x.revenue, 0);
-  });
-  return { month: monthLabel, billing, totalRevenue };
-}
-
-function parseLevels(rows) {
-  const map = {};
-  for (let i = 1; i < rows.length; i++) {
-    const name  = formatPersonName(String(rows[i]?.[0] ?? "").trim());
-    const level = String(rows[i]?.[1] ?? "").trim();
-    if (name && level) map[name] = level;
-  }
-  return map;
-}
-
-function parseCaps(rows) {
-  const map = {};
-  for (let i = 1; i < rows.length; i++) {
-    const year = parseInt(String(rows[i]?.[0] ?? "").trim());
-    const cap  = num(rows[i]?.[1]);
-    if (year >= 2020 && year <= 2050 && cap > 0) map[year] = cap;
-  }
-  return map;
-}
-
-function encodeShareUrl(url) {
-  return "u!" + btoa(url).replace(/=+$/, "").replace(/\//g, "_").replace(/\+/g, "-");
-}
 
 const LINE_PALETTE = [
   "#2563eb", "#10b981", "#f59e0b", "#7c3aed", "#0891b2",
@@ -2048,7 +1965,6 @@ function EngagementHealthPanel({ yearAgg, customerLabel }) {
 /* ---------- main ---------- */
 
 export default function EvoraInvoiceDashboard() {
-  const { instance, accounts } = useMsal();
   const [months, setMonths] = useState([]);
   const [capsMap, setCapsMap] = useState({});
   const [loading, setLoading] = useState(true);
@@ -2064,76 +1980,22 @@ export default function EvoraInvoiceDashboard() {
 
   useEffect(() => {
     let cancelled = false;
-    const account = accounts[0];
-    if (!account) return;
     (async () => {
       try {
-        let tokenResponse;
-        try {
-          tokenResponse = await instance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account });
-        } catch (_) {
-          await instance.acquireTokenRedirect({ scopes: GRAPH_SCOPES, account, prompt: "select_account" });
+        // Unified auth: reaching /invoice already required a platform sign-in.
+        // One call — the server resolves the workbook, opens a single Graph
+        // session, reads every sheet concurrently under it, and parses the
+        // result (see /api/invoice/data + lib/invoice-data.ts).
+        const res = await fetch("/api/invoice/data");
+        if (res.status === 401) {
+          window.location.href = "/sign-in?callbackUrl=%2Finvoice";
           return;
         }
-        const token = tokenResponse.accessToken;
-        const headers = { authorization: `Bearer ${token}` };
-
-        const itemRes = await fetch(
-          `https://graph.microsoft.com/v1.0/shares/${encodeShareUrl(SHAREPOINT_SHARE_URL)}/driveItem?$select=id,parentReference`,
-          { headers }
-        );
-        if (!itemRes.ok) {
-          const body = await itemRes.text().catch(() => "");
-          console.error("[invoice-dashboard] share resolve failed", itemRes.status, body);
-          throw new Error(`share resolve ${itemRes.status} - ${body.slice(0, 200) || itemRes.statusText}`);
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || `${res.status} ${res.statusText}`);
         }
-        const item = await itemRes.json();
-        const driveId = item.parentReference.driveId;
-        const itemId = item.id;
-
-        let levelMap = {};
-        const levelRes = await fetch(
-          `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}` +
-          `/workbook/worksheets('Levels')/usedRange(valuesOnly=true)?$select=values`,
-          { headers }
-        );
-        if (levelRes.ok) {
-          const { values: levelValues } = await levelRes.json();
-          levelMap = parseLevels(levelValues || []);
-        }
-
-        let capsData = {};
-        const capsRes = await fetch(
-          `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}` +
-          `/workbook/worksheets('Caps')/usedRange(valuesOnly=true)?$select=values`,
-          { headers }
-        );
-        if (capsRes.ok) {
-          const { values: capsValues } = await capsRes.json();
-          capsData = parseCaps(capsValues || []);
-        }
-
-        const loaded = [];
-        for (const spec of MONTHLY_SHEETS) {
-          const sheetRes = await fetch(
-            `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}` +
-            `/workbook/worksheets('${encodeURIComponent(spec.sheet)}')` +
-            `/usedRange(valuesOnly=true)?$select=values`,
-            { headers }
-          );
-          if (sheetRes.status === 404) continue;
-          if (!sheetRes.ok) {
-            const body = await sheetRes.text().catch(() => "");
-            console.error(`[invoice-dashboard] sheet ${spec.sheet} failed`, sheetRes.status, body);
-            throw new Error(`sheet ${spec.sheet} ${sheetRes.status} - ${body.slice(0, 200) || sheetRes.statusText}`);
-          }
-          const { values } = await sheetRes.json();
-          const parsed = parseRows(values || [], spec.label);
-          if (parsed) {
-            parsed.billing.forEach(p => { p.level = levelMap[p.name] ?? null; });
-            loaded.push({ ...spec, data: parsed });
-          }
-        }
+        const { months: loaded, capsMap: capsData } = await res.json();
 
         if (cancelled) return;
         setMonths(loaded);
@@ -2159,7 +2021,7 @@ export default function EvoraInvoiceDashboard() {
       }
     })();
     return () => { cancelled = true; };
-  }, [instance, accounts]);
+  }, []);
 
   const overviewMonths = useMemo(() => {
     if (!months.length) return months;
@@ -2336,12 +2198,20 @@ export default function EvoraInvoiceDashboard() {
             </div>
           </div>
 
-          <button
-            onClick={() => instance.logoutRedirect()}
-            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 transition"
-          >
-            Sign out
-          </button>
+          <div className="flex items-center gap-2">
+            <a
+              href="/"
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 transition"
+            >
+              ← Apps
+            </a>
+            <a
+              href="/api/auth/signout"
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 transition"
+            >
+              Sign out
+            </a>
+          </div>
         </div>
 
         {loading && (
