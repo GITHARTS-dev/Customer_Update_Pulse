@@ -16,10 +16,12 @@ function initials(name: string, email: string): string {
 }
 
 /**
- * Account chip in the corner of the launchpad — avatar, name/email, sign out.
- * Fetches the session client-side (NextAuth's own /api/auth/session) rather
- * than the page reading it server-side, so the launchpad itself stays a
- * static export — see the note in app/page.tsx for why that matters here.
+ * Account badge in the corner of the launchpad. At rest it's just the
+ * initials circle; hovering slides a name chip out from behind it (pure CSS,
+ * via group-hover — no state needed); clicking opens a dropdown with the full
+ * details and sign out. Fetches the session client-side (NextAuth's own
+ * /api/auth/session) rather than the page reading it server-side, so the
+ * launchpad itself stays a static export — see the note in app/page.tsx.
  */
 export function ProfileBadge() {
   const [user, setUser] = useState<SessionUser | null>(null);
@@ -63,40 +65,32 @@ export function ProfileBadge() {
 
   return (
     <div ref={ref} className="fixed top-4 right-4 sm:top-6 sm:right-6 z-20">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex items-center gap-2.5 rounded-full border border-sand-200 bg-cream/90 backdrop-blur pl-2 pr-3.5 py-1.5 shadow-card hover:shadow-hero transition"
-      >
-        <span
-          className="flex h-8 w-8 items-center justify-center rounded-full text-white text-[11px] font-semibold shrink-0"
+      <div className="group relative h-10">
+        {/* Name chip — same footprint as the avatar at rest (perfectly hidden
+            underneath it), widens leftward on hover to reveal the name. */}
+        <div
+          className="absolute right-0 top-0 h-10 w-10 overflow-hidden rounded-full border border-sand-200 bg-cream shadow-card transition-[width] duration-300 ease-out group-hover:w-[190px]"
+          aria-hidden="true"
+        >
+          <span className="absolute inset-y-0 left-4 right-11 flex items-center text-[13px] font-medium text-ink-900 whitespace-nowrap opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-hover:delay-150">
+            {displayName}
+          </span>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-label={`Account: ${displayName}`}
+          className="absolute right-0 top-0 flex h-10 w-10 items-center justify-center rounded-full text-white text-[13px] font-semibold shadow-card ring-2 ring-cream"
           style={{ backgroundColor: "#6C47E8" }}
         >
           {initials(name, email)}
-        </span>
-        <span className="text-left leading-tight hidden sm:block">
-          <span className="block text-[12.5px] font-medium text-ink-900 max-w-[140px] truncate">
-            {displayName}
-          </span>
-          {name && email && (
-            <span className="block text-[10.5px] text-ink-400 max-w-[140px] truncate">{email}</span>
-          )}
-        </span>
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          aria-hidden="true"
-          className={`shrink-0 text-ink-400 transition-transform ${open ? "rotate-180" : ""}`}
-        >
-          <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
+        </button>
+      </div>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-56 rounded-xl border border-sand-200 bg-cream shadow-hero overflow-hidden">
+        <div className="absolute right-0 top-12 w-56 rounded-xl border border-sand-200 bg-cream shadow-hero overflow-hidden">
           <div className="px-4 py-3 border-b border-sand-200">
             <p className="text-sm font-medium text-ink-900 truncate">{displayName}</p>
             {name && email && <p className="text-xs text-ink-400 truncate mt-0.5">{email}</p>}
