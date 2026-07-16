@@ -10,27 +10,38 @@ import {
 import { fetchSubmissionsListItems } from "./submissions-fetch";
 import { submissionsListIdFor } from "./customer-lists";
 import type { Customer } from "./customers";
+import type { ActionStatus } from "./actions";
 
-export type ActionStatus = "noted" | "done" | "dismissed";
+export type { ActionStatus };
 
 export interface ActionState {
   status: ActionStatus;
   at: string;
+  /** The ask this response is about + its programme - so the lead's check-in
+   * can show "Sreema: Let's talk - re: <ask>", not just an opaque status. */
+  askText?: string;
+  programmeId?: string;
 }
 
-/** A short note from the CEO back to the programme's lead, shown on their check-in. */
+/** A short note from the CEO in reply to one specific ask, shown on the lead's check-in. */
 export interface CeoNote {
   text: string;
   at: string;
+  /** Person id this note is directed to (@mention, or the programme's default lead). */
+  to?: string;
+  /** The ask this note replies to - kept for display on the lead's check-in. */
+  askText?: string;
+  /** Which programme this note belongs to, so the input page can group by programme. */
+  programmeId?: string;
 }
 
 export interface CeoLog {
   actions: Record<string, ActionState>;
   views: Record<string, string>;
-  /** Keyed by programmeId — Sreema's latest note to that programme's lead. */
+  /** Keyed by the ask's actionKey - Sreema's latest note in reply to that ask. */
   notes: Record<string, CeoNote>;
   /**
-   * Keyed by programmeId — when the LEAD last opened that programme in the
+   * Keyed by programmeId - when the LEAD last opened that programme in the
    * check-in flow. Lets the lead see a "new" badge on programmes where Sreema's
    * note or actions are more recent than this, so nothing goes unnoticed.
    */
@@ -44,7 +55,7 @@ export interface CeoLog {
  *  1. SharePoint (when the customer's submissions list is configured): the log
  *     lives in that SAME list, in a single sentinel row (Title `__ceo_log__`,
  *     JSON in the AIGeneratedJSON column). That row has no ProgrammeId, so
- *     submission reads skip it — no extra list needed. Keeps Azure (read-only
+ *     submission reads skip it - no extra list needed. Keeps Azure (read-only
  *     filesystem) working.
  *  2. Filesystem (local dev, no SharePoint): data/ceo-log-<customerId>.json.
  */
@@ -108,7 +119,7 @@ async function readSPWithMeta(
     try {
       parsed = JSON.parse(raw) as Partial<CeoLog>;
     } catch {
-      // Corrupt or hand-edited blob — start clean rather than crash.
+      // Corrupt or hand-edited blob - start clean rather than crash.
     }
   }
   return { log: normalize(parsed), itemId: item.id };
@@ -161,13 +172,19 @@ async function mutate(customer: Customer, apply: (log: CeoLog) => void): Promise
 export async function setAction(
   customer: Customer,
   key: string,
-  status: ActionStatus | "open"
+  status: ActionStatus | "open",
+  meta?: { askText?: string; programmeId?: string }
 ): Promise<void> {
   await mutate(customer, (log) => {
     if (status === "open") {
       delete log.actions[key];
     } else {
-      log.actions[key] = { status, at: new Date().toISOString() };
+      log.actions[key] = {
+        status,
+        at: new Date().toISOString(),
+        askText: meta?.askText?.slice(0, 300),
+        programmeId: meta?.programmeId
+      };
     }
   });
 }
@@ -178,7 +195,7 @@ export async function setView(customer: Customer, programmeId: string): Promise<
   });
 }
 
-/** The lead has opened this programme in the check-in flow — clears its "new" badge. */
+/** The lead has opened this programme in the check-in flow - clears its "new" badge. */
 export async function setLeadView(customer: Customer, programmeId: string): Promise<void> {
   await mutate(customer, (log) => {
     log.leadViews[programmeId] = new Date().toISOString();
@@ -187,17 +204,20 @@ export async function setLeadView(customer: Customer, programmeId: string): Prom
 
 export async function setNote(
   customer: Customer,
-  programmeId: string,
-  text: string
+  key: string,
+  note: { text: string; to?: string; askText?: string; programmeId?: string }
 ): Promise<void> {
   await mutate(customer, (log) => {
-    const trimmed = text.trim();
+    const trimmed = note.text.trim();
     if (trimmed.length === 0) {
-      delete log.notes[programmeId];
+      delete log.notes[key];
     } else {
-      log.notes[programmeId] = {
+      log.notes[key] = {
         text: trimmed.slice(0, 1000),
-        at: new Date().toISOString()
+        at: new Date().toISOString(),
+        to: note.to,
+        askText: note.askText?.slice(0, 300),
+        programmeId: note.programmeId
       };
     }
   });

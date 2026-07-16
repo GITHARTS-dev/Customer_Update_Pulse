@@ -10,7 +10,7 @@ const CLIENT_ID = process.env.AZURE_CLIENT_ID;
  * refresh token; without it Microsoft only hands back the ~1hr access token
  * and every session would need a full re-login once that expires.
  */
-const SCOPE = "openid profile email offline_access Sites.ReadWrite.All";
+const SCOPE = "openid profile email offline_access Sites.ReadWrite.All Mail.Send";
 
 const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS ?? "")
   .split(",")

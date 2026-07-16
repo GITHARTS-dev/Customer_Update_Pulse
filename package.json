@@ -6,7 +6,7 @@
     "node": ">=20 <21"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3000",
     "build:invoice": "node scripts/build-invoice.mjs",
     "build": "next build && node scripts/copy-standalone-assets.mjs",
     "start": "next start",

@@ -3,28 +3,23 @@ import type { PersonSignal, Vibe } from "./types";
 export const VIBE_COLOR: Record<Vibe, string> = {
   going_well: "#3BA46A",
   watch_it: "#E8A020",
-  stuck: "#D6473F",
-  quiet_week: "#3E8FCF"
+  stuck: "#D6473F"
 };
 
-const VALID_VIBES: readonly Vibe[] = [
-  "going_well",
-  "watch_it",
-  "stuck",
-  "quiet_week"
-] as const;
+const VALID_VIBES: readonly Vibe[] = ["going_well", "watch_it", "stuck"] as const;
 
+// Unknown/legacy values (including the retired "quiet_week") settle on the
+// neutral middle - watch_it - rather than the extremes.
 export function safeVibe(v: unknown): Vibe {
   return typeof v === "string" && (VALID_VIBES as readonly string[]).includes(v)
     ? (v as Vibe)
-    : "quiet_week";
+    : "watch_it";
 }
 
 export const VIBE_TONE: Record<Vibe, { bg: string; text: string }> = {
   going_well: { bg: "#E1F0E7", text: "#2F6A4A" },
   watch_it: { bg: "#F8E7CC", text: "#7A4A0E" },
-  stuck: { bg: "#F2D2CC", text: "#7E1F14" },
-  quiet_week: { bg: "#DEE7F3", text: "#2F4767" }
+  stuck: { bg: "#F2D2CC", text: "#7E1F14" }
 };
 
 export function parseBold(narrative: string): Array<{ text: string; bold: boolean }> {
@@ -63,7 +58,7 @@ export function greeting(now: Date = new Date()): string {
 
 /**
  * One warm, human sentence summarising how the whole portfolio feels.
- * Written to soothe, never to alarm — Sreema reads this first.
+ * Written to soothe, never to alarm - Sreema reads this first.
  */
 export function emotionalOneLiner(
   counts: Record<Vibe, number>,
@@ -72,7 +67,7 @@ export function emotionalOneLiner(
   if (freshCount === 0) {
     return "The week is still settling in. The elephants are waiting to hear from you.";
   }
-  const { going_well: well, watch_it: watch, stuck, quiet_week: quiet } = counts;
+  const { going_well: well, watch_it: watch, stuck } = counts;
 
   if (stuck > 0 && well > 0) {
     return stuck === 1
@@ -88,9 +83,6 @@ export function emotionalOneLiner(
     return watch === 1
       ? "Things are in good shape. Just one programme would love a watchful eye."
       : `Things are in good shape. A couple of programmes would love a watchful eye.`;
-  }
-  if (well > 0 && quiet > 0) {
-    return "Everything is calm and moving nicely. Nothing is asking for worry today.";
   }
   if (well === freshCount) {
     return "Everything is humming beautifully this week. Take a breath and enjoy it.";
@@ -161,7 +153,7 @@ function cleanPersonName(raw: string): string {
 
 /**
  * Splits one people line into a person's name and an optional comment. A line
- * with no separator is treated as a bare name (no note) — this is what lets the
+ * with no separator is treated as a bare name (no note) - this is what lets the
  * card show "just the name" when the lead only listed a person. Any note that
  * turns out to be only the name repeated (historical corruption) is dropped.
  */
@@ -187,8 +179,8 @@ export function parsePersonLine(line: string): { name: string; note?: string } {
 
 /**
  * Parses a whole people-signals field (one person per line) into structured
- * signals, deduplicated by name. The same person listed twice — whether the
- * lead typed it, or an earlier submission's pre-fill compounded it — collapses
+ * signals, deduplicated by name. The same person listed twice - whether the
+ * lead typed it, or an earlier submission's pre-fill compounded it - collapses
  * to a single entry, so "Key people" is always a clean list of distinct people.
  * If a later mention adds a note the first lacked, that note is kept.
  */
@@ -219,21 +211,15 @@ export function parsePeopleNote(raw: string): PersonSignal[] {
   return Array.from(byName.values());
 }
 
-/** Formats a person back to one storage/prefill line — the inverse of parsePersonLine. */
+/** Formats a person back to one storage/prefill line - the inverse of parsePersonLine. */
 export function personToLine(p: PersonSignal): string {
   return p.note && p.note !== p.name ? `${p.name}: ${p.note}` : p.name;
 }
 
-// ── Signal hygiene ───────────────────────────────────────────
-// The CEO narrative and its signals are meant to stay at portfolio altitude:
-// no ticket counts, no percentages, no Jira mechanics. The prompt already asks
-// for this, but older stored submissions (and the rare model slip) can still
-// carry an operational signal like "119 tickets still to do" or "three tickets
-// quiet for 18 days". This is the deterministic net that keeps those from ever
-// reaching her, old data included.
-const OPERATIONAL_SIGNAL_RE =
-  /\d|%|\btickets?\b|\bjira\b|\bsprint\b|\bbacklog\b|\bstory points?\b|\bvelocity\b/i;
-
-export function isOperationalSignal(text: string): boolean {
-  return Boolean(text) && OPERATIONAL_SIGNAL_RE.test(text);
+/** Capitalises the first letter of each word in a name, leaving the rest as-is. */
+export function titleCaseName(name: string): string {
+  return name
+    .split(/(\s+)/)
+    .map((part) => (/^\s+$/.test(part) ? part : part.charAt(0).toUpperCase() + part.slice(1)))
+    .join("");
 }

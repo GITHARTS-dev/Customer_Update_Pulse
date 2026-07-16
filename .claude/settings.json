@@ -52,7 +52,10 @@
       "Bash(git push *)",
       "PowerShell(Get-CimInstance Win32_Process -Filter \"Name = 'node.exe'\" | Where-Object { $_.CommandLine -match \"hartss-evora|standalone|next|npm-cli\" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Seconds 2; if \\(Test-Path .next\\) { Remove-Item -Recurse -Force .next -ErrorAction SilentlyContinue }; Write-Output \"cleaned\")",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(node .tmp-tusk.mjs)",
+      "Bash(node --input-type=module -e ' *)",
+      "Bash(taskkill //F //IM node.exe)"
     ],
     "additionalDirectories": [
       "d:\\Harts-projects\\hartss-evora-pulse\\app\\programme",

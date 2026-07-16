@@ -3,7 +3,7 @@ import type { JiraSnapshot } from "@/lib/types";
 /**
  * A compact Jira snapshot for one programme's board, captured at the moment of
  * the last check-in (Jira is read server-side on submit, not live on render).
- * The parent only renders this when there are tickets to show — a programme
+ * The parent only renders this when there are tickets to show - a programme
  * whose board is empty or unconfigured has `total === 0` and gets no card at
  * all, so the CEO never sees an empty shell.
  *
@@ -46,7 +46,7 @@ export function JiraCard({ snapshot }: { snapshot: JiraSnapshot }) {
         ))}
       </div>
 
-      {/* Legend — label + count for each status */}
+      {/* Legend - label + count for each status */}
       <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
         {[
           { label: "Done", color: "#3BA46A", value: done },

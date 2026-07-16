@@ -20,6 +20,6 @@ export const config = {
   // `api/invoice` is excluded so the invoice Graph proxy returns proper JSON
   // status codes (e.g. 401) to the SPA's fetch instead of an HTML redirect.
   // `icon\\.png` (Next's App Router favicon convention) is excluded for the same
-  // reason as favicon.ico — it must load on /sign-in itself, before any session.
+  // reason as favicon.ico - it must load on /sign-in itself, before any session.
   matcher: ["/((?!api/auth|api/invoice|sign-in|_next/static|_next/image|favicon\\.ico|icon\\.png|logos|\\.swa).*)"]
 };

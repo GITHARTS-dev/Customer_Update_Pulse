@@ -7,15 +7,15 @@ import { PROGRAMMES as EVORA_PROGRAMMES } from "./programmes";
  * check-in, its own SharePoint list, and its own accent + logo. HARTS people
  * (Sreema, the leads) are the viewers; customers are the subjects.
  *
- * This module is CLIENT-SAFE — it holds only display config + programme lists,
+ * This module is CLIENT-SAFE - it holds only display config + programme lists,
  * no secrets. The SharePoint list id for each customer is resolved separately,
  * server-side, in lib/customer-lists.ts.
  */
 export interface CustomerTheme {
   /**
    * Accent colour as space-separated RGB channels, e.g. "108 71 232".
-   * Stored this way (not as #hex) so Tailwind's coral/violet utilities —
-   * defined as rgb(var(--accent) / <alpha-value>) — keep working with opacity
+   * Stored this way (not as #hex) so Tailwind's coral/violet utilities -
+   * defined as rgb(var(--accent) / <alpha-value>) - keep working with opacity
    * modifiers like `bg-coral/10`, `focus:ring-coral/40`.
    */
   accent: string;
@@ -27,7 +27,7 @@ export interface Customer {
   shortName?: string;
   /** The customer `/` redirects to; exactly one should be primary. */
   primary?: boolean;
-  /** No data wired yet — the pulse page shows a "coming soon" state. */
+  /** No data wired yet - the pulse page shows a "coming soon" state. */
   comingSoon?: boolean;
   /** Path under /public, shown alongside the HARTS platform mark. */
   logo: string;

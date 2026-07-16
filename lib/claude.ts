@@ -1,6 +1,6 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
-import type { Signal, Vibe } from "./types";
+import type { Signal, SignalKind, Vibe } from "./types";
 
 const MODEL = "claude-sonnet-4-6";
 
@@ -24,56 +24,103 @@ export interface NarrativeOutput {
   signals: Signal[];
 }
 
-// Voice, altitude, kindness, integrity and signal rules — shared by the single
-// and batch prompts. Only the output-format footer differs between them.
-const COMMON_RULES = `You are writing a short, warm weekly pulse note about a programme, shared with a colleague who holds the whole picture across many programmes. It gives a calm, high-level sense of how the programme is really going, where a real problem may be forming, and where a shared decision or a little support would help. This is a note between equals, never a report up a chain, and never a task-by-task status.
+// ── Signal candidates ────────────────────────────────────────
+// Signals are the lead's OWN sentences, shown verbatim - Claude only tags each
+// with a kind (win/watch/ask), never rewrites it. So we split the lead's words
+// deterministically here, number them, and ask Claude to classify by number.
+// That guarantees the card shows exactly what the lead wrote.
+function splitSentences(text: string): string[] {
+  return (text || "")
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
 
-Altitude rules (these are the most important — a note that breaks them is useless):
-- Write at a portfolio altitude, never an operational status report. Speak to the health of the programme and what it means, not the mechanics of the work.
-- NEVER mention operational or quantitative detail: no counts of tasks, tickets, or items; no percentages; no "three things are quiet", no "two topics", no ticket names, no tool or board references. If you are about to write a number about the work, stop and describe what it means instead.
-- Delivery progress is never a signal. Even if the lead's notes mention Jira, tickets, boards, sprints, backlogs, a completion percentage, or any counts, never repeat them and never build a narrative or signal around them. Translate delivery into qualitative health only: "early days", "moving steadily", "nearly there", "taking longer than hoped". No signal may be about tickets, a board, or how much is done.
-- Give the signal, not the activity. Good: "the client relationship is warm and the direction is set." Bad: "several tickets have been quiet, worth a check before the workshop."
-- Surface real substance: what is genuinely going well, what could become a problem, and where a decision would genuinely help.
+function signalCandidates(input: NarrativeInput): string[] {
+  const fromFree = splitSentences(input.leadFreeText);
+  const fromTopics = (input.openTopics || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const c of [...fromFree, ...fromTopics]) {
+    const key = c.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(c);
+    if (out.length >= 12) break;
+  }
+  return out;
+}
 
-Voice rules (inviolable):
+/** Maps Claude's {i, kind} classifications back to verbatim candidate text. */
+function mapSignals(raw: unknown, candidates: string[]): Signal[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Signal[] = [];
+  const seen = new Set<number>();
+  for (const item of raw as Array<Record<string, unknown>>) {
+    const i = typeof item.i === "number" ? item.i : Number(item.i);
+    const kind = item.kind;
+    if (!Number.isInteger(i) || i < 0 || i >= candidates.length || seen.has(i)) continue;
+    if (kind !== "win" && kind !== "watch" && kind !== "ask") continue;
+    seen.add(i);
+    out.push({ kind: kind as SignalKind, text: candidates[i] });
+  }
+  return out;
+}
+
+// Voice, altitude, kindness, integrity rules for the NARRATIVE Claude writes,
+// plus the classification rules for the signal candidates (which it does NOT
+// write). Shared by the single and batch prompts; only the output-format footer
+// differs.
+const COMMON_RULES = `You have two jobs for each programme: (1) write a short, warm weekly pulse NARRATIVE, and (2) CLASSIFY the lead's own sentences into signals. These are different. Read both carefully.
+
+The NARRATIVE is a calm, high-level note shared with a colleague who holds the whole picture across many programmes. A note between equals, never a report up a chain, and never a task-by-task status.
+
+Altitude rules for the NARRATIVE (most important):
+- Portfolio altitude, never an operational status report. Speak to the health of the programme and what it means.
+- NEVER mention operational or quantitative detail in the narrative: no counts of tasks/tickets/items, no percentages, no ticket names, no tool or board references. Translate delivery into qualitative health only ("early days", "moving steadily", "nearly there", "taking longer than hoped").
+- Surface real substance: what is genuinely going well, what could become a problem, where a decision would help.
+
+Voice rules for the NARRATIVE (inviolable):
 - Plain everyday words. Short natural sentences.
 - Never use corporate jargon: no "leverage", "synergy", "stakeholder", "cadence", "bandwidth", "align", "circle back", "deep dive".
-- NEVER use em-dashes (—). Use commas, full stops, or "and".
-- 1 to 2 short sentences total, around 25 words at most. Precise and warm, never rushed.
-- First sentence is the headline: how the programme is really doing. If a second is needed, give the one thing that matters most this week.
-- Wrap the 1 or 2 most important phrases in **markdown bold**. Use it sparingly.
+- NEVER use em-dashes. Use commas, full stops, or "and".
+- 1 to 2 short sentences total, around 25 words at most. Precise and warm.
+- First sentence is the headline. Wrap the 1 or 2 most important phrases in **markdown bold**, sparingly.
 
-No-names rule (inviolable):
-- Never write any person's name, even if the lead's notes are full of names. Refer to people by role or generically: "the lead", "the client", "the partner", "the team", "the regional heads". Use he, she, or they.
-- Describe what needs to happen without naming who: "the partner is engaged", "a decision would help here", not "Vivek is happy" or "ask Timo".
-- Never direct a specific person to do a task. Do not write "ask X to", "X needs to", "chase Y", "the lead should". Speak only to what the programme needs or what would help, never who must act.
+No-names rule for the NARRATIVE and ESSENCE (inviolable):
+- Never write any person's name in the narrative or essence. Refer to people by role: "the lead", "the client", "the team". Use he, she, or they.
+- Never direct a specific person to act.
 
-Respect and equality (inviolable):
-- Everyone involved, and whoever reads this, are equals. Never imply rank or hierarchy. Never frame anything as reporting up, escalating, approval from above, or one person answering to another.
-- Decisions are shared and support is mutual: "a decision would help", "worth deciding together", "a hand here would go a long way", never "she needs to sign off" or "this is waiting on leadership".
-- Be equally respectful of the lead, the team, the client, and the reader. No one is above another.
+Respect and equality (inviolable, narrative + essence):
+- Everyone involved and reading is an equal. Never imply rank, reporting up, escalation, or approval from above. Decisions are shared and support is mutual.
 
-Kindness rules (inviolable):
-- Be gentle and respectful about every person and every programme. Never blame, never judge.
-- Avoid heavy or harsh words: never "blocked", "stuck", "stalled", "failed", "dead", "broken", "crisis".
-- Say hard things softly: "waiting on", "needs a hand", "paused for now", "taking longer than hoped", "would value a decision".
-- The reader should feel informed and calm, never alarmed. Let genuine good news sound good.
+Kindness rules for the NARRATIVE (inviolable):
+- Be gentle about every person and programme. Never blame or judge.
+- Avoid harsh words: never "blocked", "stuck", "stalled", "failed", "crisis". Say hard things softly: "waiting on", "needs a hand", "paused for now", "taking longer than hoped".
+- The reader should feel informed and calm, never alarmed.
 
 Integrity rules:
-- Only reflect what the lead actually reported. Do not invent relationships, satisfaction, or claims that weren't in the input.
-- If the lead's input is thin, stay modest and grounded. Do not embellish or manufacture a concern.
-- A field shown as "(none)" means the lead reported nothing there. Never fill that gap with invented detail; a short, honest narrative is better than a fabricated one.
-- Write in clean, grammatical British English. Complete sentences, correct punctuation, no fragments or typos.
+- Only reflect what the lead actually reported. If the input is thin, stay modest. A field shown as "(none)" means nothing was reported there. Never invent detail.
+- Write the narrative and essence in clean, grammatical British English.
 
-Signals — think before you write each one (quality over quantity):
-- "win": a genuine, meaningful positive worth her knowing about. Not routine progress.
-- "watch": ONLY something that could realistically escalate into a real problem if left alone. Before flagging a watch, ask whether this is an actual risk, or ordinary week-to-week movement. If it is ordinary, do not flag it. But never bury a genuinely important risk to seem positive.
-- "ask": a real decision or moment that would benefit from being taken together this week. Not a task for the team, and not a demand of any one person.
-- Emit 0 to 3 signals. Zero is correct when nothing genuinely rises to this level. Every signal obeys the altitude, no-names, and equality rules: no numbers, no task detail, no names, no hierarchy.`;
+SIGNAL CLASSIFICATION (you do NOT write signal text):
+- Each programme includes a numbered "Signal candidates" list, the lead's own sentences, exactly as written.
+- For each candidate that is a genuine signal, return its number with a kind:
+  - "win": a real positive worth the reader knowing.
+  - "watch": something that could realistically become a problem if left alone.
+  - "ask": a real decision or request that would benefit from being taken together.
+- Do NOT rewrite, summarise, translate, or clean the candidate text. You only return its NUMBER and a kind. The lead's exact sentence is shown to the reader.
+- Skip (do not return) any candidate that is routine filler, a greeting, or not a real signal.
+- The no-names / no-numbers / altitude rules above apply ONLY to the narrative and essence you write, NOT to the candidates, which stay in the lead's exact words even if they contain names or numbers.
+- Return between zero and all candidates. Zero is correct when none is a real signal.`;
 
 const OUTPUT_FIELDS = `  "narrative": "1 to 2 high-level sentences with **bold** markers, no names, no numbers",
   "essence": "5 to 7 word summary, no names, no numbers",
-  "signals": [ { "kind": "win" | "watch" | "ask", "text": "one short high-level observation, no names, no numbers" } ]`;
+  "signals": [ { "i": <candidate number>, "kind": "win" | "watch" | "ask" } ]`;
 
 const SINGLE_FORMAT = `Output format:
 Return ONLY a valid JSON object with these exact keys:
@@ -82,7 +129,7 @@ ${OUTPUT_FIELDS}
 }
 Return ONLY the JSON. No prose before or after. No backticks. No markdown code fences.`;
 
-const BATCH_FORMAT = `You are given SEVERAL programmes at once, each marked with a "programmeId". Write one note for EACH programme, judged only on its own input.
+const BATCH_FORMAT = `You are given SEVERAL programmes at once, each marked with a "programmeId". Handle EACH programme on its own input only.
 
 Output format:
 Return ONLY a valid JSON ARRAY, one object per programme, in the same order the programmes are given. Each object has these exact keys:
@@ -95,34 +142,26 @@ Return ONLY the JSON array. No prose before or after. No backticks. No markdown 
 const SYSTEM_PROMPT = `${COMMON_RULES}\n\n${SINGLE_FORMAT}`;
 const SYSTEM_PROMPT_BATCH = `${COMMON_RULES}\n\n${BATCH_FORMAT}`;
 
-function programmeBlock(input: NarrativeInput, id?: string): string {
+function programmeBlock(input: NarrativeInput, candidates: string[], id?: string): string {
+  const candidateLines = candidates.length
+    ? candidates.map((c, i) => `${i}. ${c}`).join("\n")
+    : "(none)";
   return [
     id ? `Programme id: ${id}` : null,
     `Programme: ${input.programmeName}`,
     `Vibe the lead chose this week: ${input.vibe.replace("_", " ")}`,
     "",
-    `People notes from the lead (may contain names — never repeat any name): ${input.peopleNote || "(none)"}`,
+    `People notes from the lead (may contain names, never repeat any name in the narrative): ${input.peopleNote || "(none)"}`,
     `Open decisions the lead raised: ${input.openTopics || "(none)"}`,
-    `Lead's own words: ${input.leadFreeText || "(none)"}`
+    `Lead's own words: ${input.leadFreeText || "(none)"}`,
+    "",
+    `Signal candidates (classify by number, do NOT rewrite):`,
+    candidateLines
   ]
     .filter((l) => l !== null)
     .join("\n");
 }
 
-function buildUserMessage(input: NarrativeInput): string {
-  return programmeBlock(input);
-}
-
-function buildBatchUserMessage(inputs: NarrativeInputWithId[]): string {
-  return inputs
-    .map((input) => programmeBlock(input, input.programmeId))
-    .join("\n\n----------\n\n");
-}
-
-/**
- * Extracts a JSON value from a model reply that may be wrapped in code fences
- * or padded with prose. Handles both objects ({...}) and arrays ([...]).
- */
 function stripFences(raw: string): string {
   let text = raw.trim();
   if (text.startsWith("```")) {
@@ -148,17 +187,16 @@ function requireApiKey(): void {
   }
 }
 
-export async function generateNarrative(
-  input: NarrativeInput
-): Promise<NarrativeOutput> {
+export async function generateNarrative(input: NarrativeInput): Promise<NarrativeOutput> {
   requireApiKey();
+  const candidates = signalCandidates(input);
 
   const client = new Anthropic();
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 1024,
     system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: buildUserMessage(input) }]
+    messages: [{ role: "user", content: programmeBlock(input, candidates) }]
   });
 
   const textBlock = response.content.find((b) => b.type === "text");
@@ -167,27 +205,28 @@ export async function generateNarrative(
   }
 
   const cleaned = stripFences(textBlock.text);
-  let parsed: NarrativeOutput;
+  let parsed: { narrative?: string; essence?: string; signals?: unknown };
   try {
-    parsed = JSON.parse(cleaned) as NarrativeOutput;
+    parsed = JSON.parse(cleaned);
   } catch (err) {
-    throw new Error(
-      `Claude returned non-JSON output: ${cleaned.slice(0, 200)}... (${err})`
-    );
+    throw new Error(`Claude returned non-JSON output: ${cleaned.slice(0, 200)}... (${err})`);
   }
 
   if (!parsed.narrative || !parsed.essence) {
     throw new Error("Claude response missing required fields");
   }
-  if (!Array.isArray(parsed.signals)) parsed.signals = [];
-  return parsed;
+  return {
+    narrative: parsed.narrative,
+    essence: parsed.essence,
+    signals: mapSignals(parsed.signals, candidates)
+  };
 }
 
 /**
  * Generates narratives for MANY programmes in a SINGLE Claude call, keyed by
- * programmeId. One check-in session covering N programmes costs one API call,
- * not N. Any programme Claude omits from the reply is simply absent from the
- * returned map; the caller decides how to handle that.
+ * programmeId. Signals are mapped back to each programme's own verbatim
+ * candidate list, so a wrong index from one programme can never leak another's
+ * text.
  */
 export async function generateNarratives(
   inputs: NarrativeInputWithId[]
@@ -195,12 +234,19 @@ export async function generateNarratives(
   if (inputs.length === 0) return {};
   requireApiKey();
 
+  const candidatesById: Record<string, string[]> = {};
+  for (const input of inputs) candidatesById[input.programmeId] = signalCandidates(input);
+
+  const userMessage = inputs
+    .map((input) => programmeBlock(input, candidatesById[input.programmeId], input.programmeId))
+    .join("\n\n----------\n\n");
+
   const client = new Anthropic();
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: Math.min(4096, 600 + inputs.length * 400),
     system: SYSTEM_PROMPT_BATCH,
-    messages: [{ role: "user", content: buildBatchUserMessage(inputs) }]
+    messages: [{ role: "user", content: userMessage }]
   });
 
   const textBlock = response.content.find((b) => b.type === "text");
@@ -213,9 +259,7 @@ export async function generateNarratives(
   try {
     parsed = JSON.parse(cleaned);
   } catch (err) {
-    throw new Error(
-      `Claude returned non-JSON output: ${cleaned.slice(0, 200)}... (${err})`
-    );
+    throw new Error(`Claude returned non-JSON output: ${cleaned.slice(0, 200)}... (${err})`);
   }
   if (!Array.isArray(parsed)) {
     throw new Error("Claude batch response was not a JSON array");
@@ -230,7 +274,7 @@ export async function generateNarratives(
     out[programmeId] = {
       narrative,
       essence,
-      signals: Array.isArray(item.signals) ? (item.signals as Signal[]) : []
+      signals: mapSignals(item.signals, candidatesById[programmeId] ?? [])
     };
   }
   return out;

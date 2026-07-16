@@ -5,7 +5,7 @@ import "server-only";
  * (out of the browser) for two reasons: it lets every read for one load share a
  * single Graph "workbook session" instead of each of the 8 sheet reads forcing
  * Graph to re-open and re-parse the whole Excel file from scratch (the dominant
- * cost — this is Microsoft's own documented Excel-on-Graph performance trap),
+ * cost - this is Microsoft's own documented Excel-on-Graph performance trap),
  * and it lets the parsed result be cached across users/requests, since this is
  * shared data that changes at most monthly.
  */
@@ -18,7 +18,7 @@ const SHAREPOINT_SHARE_URL =
   "https://gobalharts.sharepoint.com/:x:/s/HARTSFellowship-2025/IQA8Y23YWKyZTbJYZ6R-JO-ZAZv2o_Y9XXmNnyZSdmxu3xE?e=Bk8gMm";
 
 // `key` must be unique across every sheet/year (it's the identifier used for month
-// selection everywhere) — keep it equal to `sheet` so adding a past year (e.g. Jan25)
+// selection everywhere) - keep it equal to `sheet` so adding a past year (e.g. Jan25)
 // never collides with the same month abbreviation in another year (e.g. Jan26).
 const MONTHLY_SHEETS = [
   { key: "Jan26", sheet: "Jan26", label: "January 2026", shortLabel: "Jan 2026" },
@@ -235,7 +235,7 @@ async function fetchInvoiceData(token: string): Promise<InvoiceData> {
   const { id: sessionId } = (await sessionRes.json()) as { id: string };
 
   try {
-    // All 8 reads run concurrently under the one session — wall-clock is
+    // All 8 reads run concurrently under the one session - wall-clock is
     // bounded by the slowest single read, not their sum.
     const [levelValues, capsValues, ...sheetResults] = await Promise.all([
       fetchWorksheetValues(base, "Levels", token, sessionId),
@@ -249,7 +249,7 @@ async function fetchInvoiceData(token: string): Promise<InvoiceData> {
     const months: InvoiceMonth[] = [];
     MONTHLY_SHEETS.forEach((spec, i) => {
       const values = sheetResults[i];
-      if (values == null) return; // sheet absent (404) — same as the old behaviour
+      if (values == null) return; // sheet absent (404) - same as the old behaviour
       const parsed = parseRows(values, spec.label);
       if (parsed) {
         parsed.billing.forEach((p) => {
@@ -261,7 +261,7 @@ async function fetchInvoiceData(token: string): Promise<InvoiceData> {
 
     return { months, capsMap };
   } finally {
-    // Best-effort cleanup — an already-expired session shouldn't fail the request.
+    // Best-effort cleanup - an already-expired session shouldn't fail the request.
     graphFetchRaw(`${base}/workbook/closeSession`, token, sessionId, { method: "POST" }).catch(() => {});
   }
 }
@@ -273,7 +273,7 @@ let cached: { data: InvoiceData; expiresAt: number } | null = null;
  * This is shared data (the same workbook for every viewer), so the parsed
  * result is cached process-wide rather than per-user: the first request in
  * each 5-minute window pays the Graph cost, everyone else gets it instantly.
- * Only a successful fetch is cached — a failure never poisons the cache.
+ * Only a successful fetch is cached - a failure never poisons the cache.
  */
 export async function loadInvoiceData(accessToken: string): Promise<InvoiceData> {
   if (cached && cached.expiresAt > Date.now()) return cached.data;

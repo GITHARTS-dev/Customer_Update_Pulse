@@ -43,7 +43,7 @@ interface SubmitBody {
 }
 
 const LINES_MAX = 6;
-const VALID_VIBES = ["going_well", "watch_it", "stuck", "quiet_week"];
+const VALID_VIBES = ["going_well", "watch_it", "stuck"];
 
 function parseOpenTopics(raw: string): Array<{ title: string }> {
   const seen = new Set<string>();

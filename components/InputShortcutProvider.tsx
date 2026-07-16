@@ -7,7 +7,7 @@ import { InputDrawer } from "./InputDrawer";
 
 /**
  * The magic word. Type "harts" anywhere (outside a text field) and the weekly
- * check-in slides open — but only while viewing a live customer's pages
+ * check-in slides open - but only while viewing a live customer's pages
  * (/c/<id>/…). On the sign-in page or a coming-soon customer it does nothing,
  * and the drawer isn't mounted, so it can't reach a customer with no programmes.
  */

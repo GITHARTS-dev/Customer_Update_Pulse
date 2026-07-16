@@ -3,7 +3,7 @@ import type { Programme } from "@/lib/types";
 
 /**
  * Content-area placeholders. These deliberately render ONLY where API data
- * goes — the page shell (sidebar, header, section headings, card frames) is
+ * goes - the page shell (sidebar, header, section headings, card frames) is
  * always painted instantly by the page itself; these fill the holes while
  * SharePoint / Claude are still being read, so a navigation never shows a
  * blank white page. Shapes and heights mirror the real cards to avoid layout
@@ -69,6 +69,25 @@ export function AttentionSkeleton() {
             <div className="mt-2 h-3 w-full bg-sand-100 rounded animate-pulse" />
             <div className="mt-1.5 h-3 w-4/5 bg-sand-100 rounded animate-pulse" />
           </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** The "Delivery in Jira" card while the live board is fetched on render. */
+export function JiraCardSkeleton() {
+  return (
+    <section className="card px-5 py-5">
+      <div className="flex items-baseline justify-between mb-3">
+        <h3 className="font-serif text-lg text-ink-900">Delivery in Jira</h3>
+        <div className="h-2.5 w-12 bg-sand-200 rounded animate-pulse" />
+      </div>
+      <div className="h-8 w-20 bg-sand-100 rounded animate-pulse mb-2.5" />
+      <div className="h-2 w-full bg-sand-100 rounded-full animate-pulse" />
+      <div className="mt-3 flex gap-4">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-3 w-16 bg-sand-100 rounded animate-pulse" />
         ))}
       </div>
     </section>

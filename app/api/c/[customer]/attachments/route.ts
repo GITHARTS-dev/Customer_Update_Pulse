@@ -26,7 +26,7 @@ function safeName(name: string): string {
 /**
  * Uploads one or more files for a programme's weekly check-in. Files are stored
  * in the SharePoint document library, foldered by customer, and never read by
- * Claude — they exist purely for the CEO to open from the Signals card.
+ * Claude - they exist purely for the CEO to open from the Signals card.
  */
 export async function POST(req: Request, ctx: RouteContext) {
   const { customer: cid } = await ctx.params;

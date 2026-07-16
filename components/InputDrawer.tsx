@@ -7,25 +7,28 @@ import { getCustomer, primaryCustomer } from "@/lib/customers";
 import { useCustomerId } from "@/lib/use-customer";
 import { VIBE_LABEL, type Attachment, type Programme, type PulseSubmission, type Vibe } from "@/lib/types";
 import { VIBE_COLOR, actionKey, relativeTime } from "@/lib/helpers";
+import { personById } from "@/lib/people";
 import type { ActionStatus, CeoLog } from "@/lib/ceo-store";
 
 interface CeoTouch {
   text: string;
-  status: ActionStatus;
+  status?: ActionStatus;
   at: string;
+  /** Sreema's note in reply to this ask, if any, and who she directed it to. */
+  note?: string;
+  to?: string;
 }
 
 const STATUS_META: Record<ActionStatus, { label: string; bg: string; fg: string; icon: string }> = {
-  done: { label: "Done", bg: "#E1F0E7", fg: "#2F6A4A", icon: "✓" },
+  need_info: { label: "Need more info", bg: "#F8E7CC", fg: "#7A4A0E", icon: "?" },
   noted: { label: "Noted", bg: "#ECEAF7", fg: "#6C6689", icon: "•" },
-  dismissed: { label: "Not now", bg: "#F8E7CC", fg: "#7A4A0E", icon: "⏸" }
+  lets_talk: { label: "Let's talk", bg: "#E1F0E7", fg: "#2F6A4A", icon: "☎" }
 };
 
 const VIBE_HELP: Record<Vibe, string> = {
   going_well: "Energy is up, things are moving, no decisions waiting.",
   watch_it: "Something has cooled, a person, a date, or a decision is wobbling.",
-  stuck: "Waiting on something important. A little help this week would go a long way.",
-  quiet_week: "Nothing material to flag, scoping or early phase."
+  stuck: "Waiting on something important. A little help this week would go a long way."
 };
 
 const FREE_TEXT_MIN = 20;
@@ -175,7 +178,7 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
-  // Programmes the lead has looked at this session — clears the "new" badge
+  // Programmes the lead has looked at this session - clears the "new" badge
   // optimistically. setSeenTick just forces a re-render when the ref changes.
   const seenRef = useRef<Set<string>>(new Set());
   const [, setSeenTick] = useState(0);
@@ -185,10 +188,12 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
   // Sreema's most recent activity on a programme (a note, or any action touch),
   // so a "new" badge can surface a response before the lead opens that programme.
   function ceoActivityAt(pid: string): string | null {
-    let latest: string | null = ceoLog.notes?.[pid]?.at ?? null;
-    for (const [k, st] of Object.entries(ceoLog.actions)) {
-      const parts = k.split("::");
-      if (parts[1] === pid && st.at && (!latest || st.at > latest)) latest = st.at;
+    let latest: string | null = null;
+    for (const st of Object.values(ceoLog.actions)) {
+      if (st.programmeId === pid && st.at && (!latest || st.at > latest)) latest = st.at;
+    }
+    for (const n of Object.values(ceoLog.notes)) {
+      if (n.programmeId === pid && n.at && (!latest || n.at > latest)) latest = n.at;
     }
     return latest;
   }
@@ -222,7 +227,7 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
   }, [isOpen]);
 
   // Load every programme's latest submission + the CEO log ONCE when the drawer
-  // opens (one GET each, covering all programmes) — for prefill and banners.
+  // opens (one GET each, covering all programmes) - for prefill and banners.
   useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
@@ -344,23 +349,29 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
   ];
   const missing = sections.filter((s) => !s.covered).map((s) => s.label);
 
-  // CEO's side of the conversation for the current programme.
+  // CEO's side of the conversation for the current programme: her response
+  // (status) and/or note on each ask this week.
   const existing = existingByProgramme[current];
-  const ceoNote = ceoLog.notes?.[current]?.text ?? "";
   const ceoViewedAt = ceoLog.views?.[current] ?? null;
   const ceoHasViewed = Boolean(
     ceoViewedAt && existing?.submittedAt && new Date(ceoViewedAt) >= new Date(existing.submittedAt)
   );
   const ceoTouches: CeoTouch[] = [];
   if (existing) {
-    for (const topic of existing.openTopics ?? []) {
-      const st = ceoLog.actions[actionKey("topic", current, topic.title)];
-      if (st) ceoTouches.push({ text: topic.title, status: st.status, at: st.at });
-    }
     for (const sig of existing.signals ?? []) {
       if (sig.kind !== "ask") continue;
-      const st = ceoLog.actions[actionKey("signal", current, sig.text)];
-      if (st) ceoTouches.push({ text: sig.text, status: st.status, at: st.at });
+      const key = actionKey("signal", current, sig.text);
+      const st = ceoLog.actions[key];
+      const note = ceoLog.notes[key];
+      if (st || note) {
+        ceoTouches.push({
+          text: sig.text,
+          status: st?.status,
+          at: st?.at ?? note?.at ?? "",
+          note: note?.text,
+          to: note?.to
+        });
+      }
     }
   }
 
@@ -486,7 +497,7 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
                 </div>
               )}
 
-              {/* New from Sreema — programmes with a note or response the lead
+              {/* New from Sreema - programmes with a note or response the lead
                   hasn't opened yet, so she never misses a reply */}
               {unseenOthers.length > 0 && (
                 <div className="px-4 py-3 rounded-lg bg-[#ECEAF7] border border-[#D0CBE2]">
@@ -510,7 +521,7 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
                 </div>
               )}
 
-              {/* Chips — everything filled this session, so nothing feels lost on switch */}
+              {/* Chips - everything filled this session, so nothing feels lost on switch */}
               {includedList.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {includedList.map((p) => {
@@ -568,18 +579,6 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
 
               {ceoTouches.length > 0 && <CeoTouchesBanner touches={ceoTouches} />}
 
-              {ceoNote.trim().length > 0 && (
-                <div className="px-4 py-3 rounded-lg bg-[#ECEAF7] border border-[#D0CBE2] flex items-start gap-3">
-                  <span className="leading-none">✉</span>
-                  <div className="min-w-0">
-                    <p className="text-[10px] uppercase tracking-[0.14em] text-[#6C6689] mb-0.5">
-                      A note from Sreema
-                    </p>
-                    <p className="text-sm text-ink-800 whitespace-pre-wrap break-words">{ceoNote}</p>
-                  </div>
-                </div>
-              )}
-
               {ceoHasViewed && ceoViewedAt && (
                 <p className="text-[11px] text-ink-500 flex items-center gap-1.5 px-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-leaf shrink-0" />
@@ -626,8 +625,8 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
               </section>
 
               <SectionCard label="How does it feel this week?" covered={curCoverage.vibe}>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {(["going_well", "watch_it", "stuck", "quiet_week"] as Vibe[]).map((v) => {
+                <div className="grid grid-cols-3 gap-2">
+                  {(["going_well", "watch_it", "stuck"] as Vibe[]).map((v) => {
                     const selected = cur.vibe === v && cur.vibeTouched;
                     return (
                       <button
@@ -709,7 +708,7 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
                   <p className="mt-1.5 text-[11px] text-ink-400">
                     {cur.freeText.trim().length < FREE_TEXT_MIN
                       ? `A few more words. ${FREE_TEXT_MIN - cur.freeText.trim().length} to go.`
-                      : "A real sentence, please — the CEO reads this."}
+                      : "A real sentence, please. The CEO reads this."}
                   </p>
                 )}
               </SectionCard>
@@ -722,7 +721,7 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
                  
                 </div>
                 <p className="text-[11px] text-ink-500 mb-3">
-                  Attach anything worth a look — a PDF, a spreadsheet, a deck. Got a whole folder?
+                  Attach anything worth a look - a PDF, a spreadsheet, a deck. Got a whole folder?
                   Zip it and drop it in. They are not read or summarised by AI.
                 </p>
 
@@ -867,7 +866,7 @@ export function InputDrawer({ isOpen, onClose, initialProgrammeId }: InputDrawer
         </div>
       </div>
 
-      {/* Progress footer — current programme's section coverage */}
+      {/* Progress footer - current programme's section coverage */}
       {submittedCount === null && (
         <div className="border-t border-sand-200 shrink-0">
           <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-3">
@@ -1020,43 +1019,41 @@ function LineCounter({ value, disabled }: { value: string; disabled: boolean }) 
   return (
     <p className={`mt-1.5 text-[11px] ${over ? "text-amber font-medium" : "text-ink-400"}`}>
       {n} / {LINES_MAX} lines
-      {over && ` — only the first ${LINES_MAX} will be sent`}
+      {over && ` - only the first ${LINES_MAX} will be sent`}
     </p>
   );
 }
 
 function CeoTouchesBanner({ touches }: { touches: CeoTouch[] }) {
-  const counts = touches.reduce<Record<ActionStatus, number>>(
-    (acc, t) => {
-      acc[t.status] = (acc[t.status] ?? 0) + 1;
-      return acc;
-    },
-    { done: 0, noted: 0, dismissed: 0 }
-  );
-  const summary = (["done", "noted", "dismissed"] as ActionStatus[])
-    .filter((s) => counts[s] > 0)
-    .map((s) => `${counts[s]} ${STATUS_META[s].label.toLowerCase()}`)
-    .join(" · ");
-
   return (
     <div className="px-4 py-3 rounded-lg bg-[#EEEAFB] border border-[#D3C7F2] text-ink-800 text-sm">
-      <div className="flex items-baseline justify-between gap-2">
-        <p className="font-medium text-[#4A2E9E]">Sreema reviewed your last check-in</p>
-        <span className="text-[11px] text-ink-500">{summary}</span>
-      </div>
-      <ul className="mt-2 space-y-1.5">
+      <p className="font-medium text-[#4A2E9E] mb-2 flex items-center gap-1.5">
+        <span className="text-sm leading-none">✉</span> From Sreema
+      </p>
+      <ul className="space-y-2">
         {touches.map((t, i) => {
-          const m = STATUS_META[t.status];
+          const m = t.status ? STATUS_META[t.status] : null;
+          const person = personById(t.to);
           return (
-            <li key={i} className="flex items-start gap-2 text-[12px]">
-              <span
-                className="mt-0.5 pill text-[9px] py-0.5 px-1.5 shrink-0"
-                style={{ backgroundColor: m.bg, color: m.fg }}
-              >
-                <span aria-hidden>{m.icon}</span>
-                {m.label}
-              </span>
-              <span className="text-ink-700 leading-snug">{t.text}</span>
+            <li key={i} className="text-[12px] min-w-0">
+              <p className="text-[11px] text-ink-500 mb-0.5 break-words">re: “{t.text}”</p>
+              <div className="flex flex-wrap items-center gap-2">
+                {m && (
+                  <span
+                    className="pill text-[9px] py-0.5 px-1.5 shrink-0"
+                    style={{ backgroundColor: m.bg, color: m.fg }}
+                  >
+                    <span aria-hidden>{m.icon}</span>
+                    {m.label}
+                  </span>
+                )}
+                {t.note && (
+                  <span className="text-ink-700 leading-snug whitespace-pre-wrap break-words">
+                    {person && <span className="font-medium text-coral">@{person.first} </span>}
+                    {t.note}
+                  </span>
+                )}
+              </div>
             </li>
           );
         })}

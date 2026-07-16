@@ -11,8 +11,7 @@ interface BabyElephantProps {
 const HALO: Record<Vibe, string> = {
   going_well: "#3BA46A",
   watch_it: "#E8A020",
-  stuck: "#D6473F",
-  quiet_week: "#3E8FCF"
+  stuck: "#D6473F"
 };
 
 const BODY = "#95A8B5";
@@ -29,7 +28,7 @@ const EYE = "#1F1B30";
  * Living mascot. Every body part sits in its own group
  * (.ele-ear-left, .ele-ear-right, .ele-head, .ele-trunk, .ele-whole)
  * and CSS in globals.css animates each part per-vibe when the root
- * carries .ele-live — ears flap, heads tilt, trunks sway.
+ * carries .ele-live - ears flap, heads tilt, trunks sway.
  */
 export function BabyElephant({
   vibe,
@@ -122,9 +121,21 @@ export function BabyElephant({
         {/* ---- head (face rides along) ---- */}
         <g className="ele-head">
           <ellipse cx="50" cy="40" rx="22" ry="20" fill={BODY} stroke={OUTLINE} strokeWidth={stroke} />
-          <g stroke={OUTLINE} strokeWidth={stroke * 1.4} strokeLinecap="round" fill="none">
-            <path d="M 47 19 Q 48 13 49.5 19" />
-            <path d="M 51 19 Q 52.5 12 54 19" />
+          <g>
+            <path
+              d="M 46.8 20 Q 45.14 15 46.7 12 Q 47.32 17 49.2 19.8 Z"
+              fill={EAR_INNER}
+              stroke={OUTLINE}
+              strokeWidth={stroke * 0.85}
+              strokeLinejoin="round"
+            />
+            <path
+              d="M 50.8 19.8 Q 51.74 14.9 53.3 12 Q 53.92 16.9 53.2 20 Z"
+              fill={EAR_INNER}
+              stroke={OUTLINE}
+              strokeWidth={stroke * 0.85}
+              strokeLinejoin="round"
+            />
           </g>
           <ellipse cx="33" cy="48" rx="4.2" ry="3" fill={BLUSH} opacity="0.7" />
           <ellipse cx="67" cy="48" rx="4.2" ry="3" fill={BLUSH} opacity="0.7" />
@@ -303,20 +314,6 @@ const TRUNKS: Record<Vibe, TrunkSpec> = {
     shade: "M 46 55 Q 39 65 32 76 Q 26 85 30 89",
     tip: [30, 89],
     tipAngle: 115
-  },
-  quiet_week: {
-    path: "M 50 56 Q 56 60 56 66 Q 55 71 48 69",
-    taper: "M 54 60 Q 57 65 55 69 Q 52 71 49 70",
-    tipCap: "M 52 70 Q 49 71 48 69 Q 48 67 50 67",
-    wrinkles: [
-      "M 51 60 Q 53 60 54 62",
-      "M 54 63 Q 55 63 55 65",
-      "M 54 67 Q 55 68 54 69",
-      "M 52 70 Q 51 69 50 69"
-    ],
-    shade: "M 50 58 Q 54 62 54 66 Q 53 70 49 68",
-    tip: [48, 69],
-    tipAngle: 105
   }
 };
 
@@ -442,22 +439,6 @@ function renderAccent(vibe: Vibe, stroke: number) {
         <path d="M 40 56 Q 38 60 40 63 Q 42 60 40 56 Z" className="ele-tear-2" />
         <path d="M 60 45 Q 58 50 60 54 Q 62 50 60 45 Z" className="ele-tear-3" />
         <path d="M 60 56 Q 58 60 60 63 Q 62 60 60 56 Z" className="ele-tear-4" />
-      </g>
-    );
-  }
-  if (vibe === "quiet_week") {
-    return (
-      <g
-        fill="none"
-        stroke={OUTLINE}
-        strokeOpacity="0.55"
-        strokeWidth={stroke * 1.1}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="ele-zz"
-      >
-        <path d="M 78 20 L 84 20 L 78 26 L 84 26" />
-        <path d="M 86 14 L 90 14 L 86 18 L 90 18" />
       </g>
     );
   }

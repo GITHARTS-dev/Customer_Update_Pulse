@@ -18,10 +18,10 @@ function initials(name: string, email: string): string {
 /**
  * Account badge in the corner of the launchpad. At rest it's just the
  * initials circle; hovering slides a name chip out from behind it (pure CSS,
- * via group-hover — no state needed); clicking opens a dropdown with the full
+ * via group-hover - no state needed); clicking opens a dropdown with the full
  * details and sign out. Fetches the session client-side (NextAuth's own
  * /api/auth/session) rather than the page reading it server-side, so the
- * launchpad itself stays a static export — see the note in app/page.tsx.
+ * launchpad itself stays a static export - see the note in app/page.tsx.
  */
 export function ProfileBadge() {
   const [user, setUser] = useState<SessionUser | null>(null);
@@ -66,7 +66,7 @@ export function ProfileBadge() {
   return (
     <div ref={ref} className="fixed top-4 right-4 sm:top-6 sm:right-6 z-20">
       <div className="group relative h-10">
-        {/* Name chip — same footprint as the avatar at rest (perfectly hidden
+        {/* Name chip - same footprint as the avatar at rest (perfectly hidden
             underneath it), widens leftward on hover to reveal the name. */}
         <div
           className="absolute right-0 top-0 h-10 w-10 overflow-hidden rounded-full border border-sand-200 bg-cream shadow-card transition-[width] duration-300 ease-out group-hover:w-[190px]"

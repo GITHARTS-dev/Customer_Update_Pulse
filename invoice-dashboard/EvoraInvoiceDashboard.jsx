@@ -1909,7 +1909,7 @@ function EngagementHealthPanel({ yearAgg, customerLabel }) {
   const tiles = [
     { label: "Client",          value: customerLabel,      sub: "Active · Ongoing engagement" },
     { label: "Billing Model",   value: "Time & Materials", sub: "Hourly billing · monthly invoices" },
-    { label: "Contract Type",   value: "No fixed term",    sub: "Ongoing — no end date set" },
+    { label: "Contract Type",   value: "No fixed term",    sub: "Ongoing · no end date set" },
     {
       label: "Contract Ceiling",
       value: annualCap ? fmtEUR(annualCap) : "Not set",
@@ -1983,7 +1983,7 @@ export default function EvoraInvoiceDashboard() {
     (async () => {
       try {
         // Unified auth: reaching /invoice already required a platform sign-in.
-        // One call — the server resolves the workbook, opens a single Graph
+        // One call - the server resolves the workbook, opens a single Graph
         // session, reads every sheet concurrently under it, and parses the
         // result (see /api/invoice/data + lib/invoice-data.ts).
         const res = await fetch("/api/invoice/data");
@@ -2283,8 +2283,8 @@ export default function EvoraInvoiceDashboard() {
             label={isCurrentOverviewYear ? "YTD On-Track Rate" : "Ceiling Utilization"}
             value={
               isCurrentOverviewYear
-                ? yearAgg.realizationRate != null ? `${yearAgg.realizationRate.toFixed(1)}%` : "—"
-                : yearAgg.capProgress != null ? `${yearAgg.capProgress.toFixed(1)}%` : "—"
+                ? yearAgg.realizationRate != null ? `${yearAgg.realizationRate.toFixed(1)}%` : "-"
+                : yearAgg.capProgress != null ? `${yearAgg.capProgress.toFixed(1)}%` : "-"
             }
             tone={
               isCurrentOverviewYear
@@ -2348,7 +2348,7 @@ export default function EvoraInvoiceDashboard() {
           )}
         </div>
 
-        {/* ── Revenue vs contract ceiling — primary chart, full width ── */}
+        {/* ── Revenue vs contract ceiling, primary chart, full width ── */}
         <RevenueTrendChart trend={yearTrend} revenueChartMax={yearRevenueChartMax} />
 
         {/* ── Projectwise Revenue + Hours ── */}

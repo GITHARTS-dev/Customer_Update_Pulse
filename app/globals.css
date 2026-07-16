@@ -66,7 +66,7 @@
     @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium;
   }
   /* Headings previously leaned on a serif display face for weight. Now that the
-     whole UI is DM Sans, `font-serif` still marks a heading — give it a display
+     whole UI is DM Sans, `font-serif` still marks a heading - give it a display
      weight and a touch of negative tracking so titles keep their presence. An
      explicit weight utility (e.g. font-medium) still wins, being in a later
      layer. */
@@ -87,8 +87,7 @@
    on the root svg. Each mood moves differently:
    going_well  = bouncing, ears flapping, trunk trumpeting
    watch_it    = still body, twitchy ears, scanning head + eyes
-   stuck       = heavy slump, sagging ears, dragging trunk, tears
-   quiet_week  = slow breathing, drowsy ears, curled trunk, Zzz  */
+   stuck       = heavy slump, sagging ears, dragging trunk, tears  */
 
 /* part anchors */
 .ele-whole,
@@ -223,7 +222,7 @@
   100% { transform: translateY(9px); opacity: 0; }
 }
 
-/* going well — joy in every limb */
+/* going well - joy in every limb */
 .ele-live[data-vibe="going_well"] .ele-whole     { animation: ele-bounce 1.4s ease-in-out infinite; }
 .ele-live[data-vibe="going_well"] .ele-head      { animation: ele-head-tilt 2.8s ease-in-out infinite; }
 .ele-live[data-vibe="going_well"] .ele-ear-left  { animation: ele-ear-flap-l 1.4s ease-in-out infinite; }
@@ -232,7 +231,7 @@
 .ele-live[data-vibe="going_well"] .ele-tail      { animation: ele-tail-wag 0.9s ease-in-out infinite; }
 .ele-live[data-vibe="going_well"] .ele-sparkles  { animation: ele-sparkle-twinkle 1.4s ease-in-out infinite alternate; }
 
-/* watch it — still body, alert senses */
+/* watch it - still body, alert senses */
 .ele-live[data-vibe="watch_it"] .ele-head      { animation: ele-head-scan 2.4s ease-in-out infinite; }
 .ele-live[data-vibe="watch_it"] .ele-pupils    { animation: ele-eye-dart 2.4s ease-in-out infinite; }
 .ele-live[data-vibe="watch_it"] .ele-ear-left  { animation: ele-ear-twitch-l 3.2s ease-in-out infinite; }
@@ -240,7 +239,7 @@
 .ele-live[data-vibe="watch_it"] .ele-trunk     { animation: ele-trunk-sniff 2.4s ease-in-out infinite; }
 .ele-live[data-vibe="watch_it"] .ele-tail      { animation: ele-tail-flick 3.2s ease-in-out infinite 0.8s; }
 
-/* stuck — everything hangs a little heavier */
+/* stuck - everything hangs a little heavier */
 .ele-live[data-vibe="stuck"] .ele-whole     { animation: ele-droop 3.5s ease-in-out infinite; }
 .ele-live[data-vibe="stuck"] .ele-head      { animation: ele-head-heavy 3.5s ease-in-out infinite; }
 .ele-live[data-vibe="stuck"] .ele-ear-left  { animation: ele-ear-sag-l 3.5s ease-in-out infinite; }
@@ -251,14 +250,6 @@
 .ele-live[data-vibe="stuck"] .ele-tear-2 { transform-box: fill-box; animation: ele-tear-fall 1.6s ease-in infinite 0.45s; }
 .ele-live[data-vibe="stuck"] .ele-tear-3 { transform-box: fill-box; animation: ele-tear-fall 1.6s ease-in infinite 0.2s; }
 .ele-live[data-vibe="stuck"] .ele-tear-4 { transform-box: fill-box; animation: ele-tear-fall 1.6s ease-in infinite 0.65s; }
-
-/* quiet week — soft breathing sleep */
-.ele-live[data-vibe="quiet_week"] .ele-whole     { transform-origin: 50px 74px; animation: ele-breathe 2.5s ease-in-out infinite; }
-.ele-live[data-vibe="quiet_week"] .ele-ear-left  { animation: ele-ear-drowse-l 4.5s ease-in-out infinite; }
-.ele-live[data-vibe="quiet_week"] .ele-ear-right { animation: ele-ear-drowse-r 4.5s ease-in-out infinite 0.6s; }
-.ele-live[data-vibe="quiet_week"] .ele-trunk     { animation: ele-trunk-curl 4s ease-in-out infinite; }
-.ele-live[data-vibe="quiet_week"] .ele-tail      { animation: ele-tail-sway 4.5s ease-in-out infinite; }
-.ele-live[data-vibe="quiet_week"] .ele-zz        { animation: ele-zz-drift 2.5s ease-out infinite; }
 
 /* ── Corner sun ───────────────────────────────────────────
    A small sun resting in the hero corner; rays sweep slowly

@@ -30,8 +30,7 @@ const RAINBOW =
 const VIBE_RANK: Record<string, number> = {
   going_well: 0,
   watch_it: 1,
-  stuck: 2,
-  quiet_week: 3
+  stuck: 2
 };
 
 export function Sidebar({
@@ -66,7 +65,7 @@ export function Sidebar({
     };
   }, [mobileOpen]);
 
-  // The customer whose logo sits beside HARTS — the active one, or the primary
+  // The customer whose logo sits beside HARTS - the active one, or the primary
   // as a sensible default for transient/loading states.
   const brandCustomer =
     (activeCustomerId ? getCustomer(activeCustomerId) : undefined) ?? primaryCustomer();
