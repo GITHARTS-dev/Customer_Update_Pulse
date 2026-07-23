@@ -15,12 +15,24 @@ const REQUEST_TIMEOUT_MS = 20000;
 const MAX_ATTEMPTS = 3;
 
 const SHAREPOINT_SHARE_URL =
-  "https://gobalharts.sharepoint.com/:x:/s/HARTSFellowship-2025/IQA8Y23YWKyZTbJYZ6R-JO-ZAZv2o_Y9XXmNnyZSdmxu3xE?e=Bk8gMm";
+  "https://gobalharts.sharepoint.com/:x:/r/sites/HARTSFellowship-2025-FinanceandInvoice/Freigegebene%20Dokumente/Customer%20Invoice/EVORA/EVORA%20Invoice%20Template1.xlsx?d=we7455f3dcae245828ccf6db449e19888&csf=1&web=1&e=0sJ4JY";
 
 // `key` must be unique across every sheet/year (it's the identifier used for month
 // selection everywhere) — keep it equal to `sheet` so adding a past year (e.g. Jan25)
 // never collides with the same month abbreviation in another year (e.g. Jan26).
 const MONTHLY_SHEETS = [
+  { key: "Jan25", sheet: "Jan25", label: "January 2025", shortLabel: "Jan 2025" },
+  { key: "Feb25", sheet: "Feb25", label: "February 2025", shortLabel: "Feb 2025" },
+  { key: "Mar25", sheet: "Mar25", label: "March 2025", shortLabel: "Mar 2025" },
+  { key: "Apr25", sheet: "Apr25", label: "April 2025", shortLabel: "Apr 2025" },
+  { key: "May25", sheet: "May25", label: "May 2025", shortLabel: "May 2025" },
+  { key: "Jun25", sheet: "Jun25", label: "June 2025", shortLabel: "Jun 2025" },
+  { key: "Jul25", sheet: "Jul25", label: "July 2025", shortLabel: "Jul 2025" },
+  { key: "Aug25", sheet: "Aug25", label: "August 2025", shortLabel: "Aug 2025" },
+  { key: "Sep25", sheet: "Sep25", label: "September 2025", shortLabel: "Sep 2025" },
+  { key: "Oct25", sheet: "Oct25", label: "October 2025", shortLabel: "Oct 2025" },
+  { key: "Nov25", sheet: "Nov25", label: "November 2025", shortLabel: "Nov 2025" },
+  { key: "Dec25", sheet: "Dec25", label: "December 2025", shortLabel: "Dec 2025" },
   { key: "Jan26", sheet: "Jan26", label: "January 2026", shortLabel: "Jan 2026" },
   { key: "Feb26", sheet: "Feb26", label: "February 2026", shortLabel: "Feb 2026" },
   { key: "Mar26", sheet: "Mar26", label: "March 2026", shortLabel: "Mar 2026" },
@@ -274,9 +286,10 @@ let cached: { data: InvoiceData; expiresAt: number } | null = null;
  * result is cached process-wide rather than per-user: the first request in
  * each 5-minute window pays the Graph cost, everyone else gets it instantly.
  * Only a successful fetch is cached — a failure never poisons the cache.
+ * `force` bypasses the TTL for an explicit user-triggered refresh.
  */
-export async function loadInvoiceData(accessToken: string): Promise<InvoiceData> {
-  if (cached && cached.expiresAt > Date.now()) return cached.data;
+export async function loadInvoiceData(accessToken: string, force = false): Promise<InvoiceData> {
+  if (!force && cached && cached.expiresAt > Date.now()) return cached.data;
   const data = await fetchInvoiceData(accessToken);
   cached = { data, expiresAt: Date.now() + CACHE_TTL_MS };
   return data;

@@ -1,5 +1,5 @@
 import "server-only";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { loadInvoiceData } from "@/lib/invoice-data";
 
@@ -9,10 +9,11 @@ import { loadInvoiceData } from "@/lib/invoice-data";
  * separate invoice sign-in. Fetching + parsing the workbook happens here,
  * server-side, so every sheet read shares one Graph workbook session and runs
  * concurrently, and the parsed result is cached across requests/users.
+ * `?refresh=1` bypasses the cache for a user-triggered refresh.
  */
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await auth();
   if (!session) {
     return NextResponse.json({ error: "signed-out" }, { status: 401 });
@@ -22,7 +23,8 @@ export async function GET() {
   }
 
   try {
-    const data = await loadInvoiceData(session.accessToken);
+    const force = request.nextUrl.searchParams.get("refresh") === "1";
+    const data = await loadInvoiceData(session.accessToken, force);
     return NextResponse.json(data, { headers: { "cache-control": "no-store" } });
   } catch (e) {
     return NextResponse.json(
