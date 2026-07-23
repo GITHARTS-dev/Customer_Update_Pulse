@@ -64,20 +64,14 @@ const loadDashboard = cache(async (customer: Customer) => {
   const watching = vibeCounts.watch_it;
   const stuckCount = vibeCounts.stuck;
 
-  const latestVibeCounts: Record<Vibe, number> = {
-    going_well: 0,
-    watch_it: 0,
-    stuck: 0
-  };
-  let latestNotYetIn = 0;
-  for (const p of programmes) {
-    const s = submissionsByProgramme[p.id];
-    if (s) latestVibeCounts[safeVibe(s.vibe)] += 1;
-    else latestNotYetIn += 1;
-  }
-  const portfolioOnTrack = latestVibeCounts.going_well;
-  const portfolioWatching = latestVibeCounts.watch_it;
-  const portfolioStuck = latestVibeCounts.stuck;
+  // "On track" mirrors the board: only this week's fresh check-ins count, so
+  // the tile's number always matches how many cards actually sit on each
+  // emotion shelf. A stale or missing programme is "not in" here, same as
+  // everywhere else on the page - never counted toward any vibe.
+  const portfolioOnTrack = vibeCounts.going_well;
+  const portfolioWatching = watching;
+  const portfolioStuck = stuckCount;
+  const notYetIn = stale + missing;
 
   const overall: Vibe =
     stuckCount > 0
@@ -119,7 +113,7 @@ const loadDashboard = cache(async (customer: Customer) => {
         [
           portfolioWatching > 0 && `${portfolioWatching} watch`,
           portfolioStuck > 0 && `${portfolioStuck} stuck`,
-          latestNotYetIn > 0 && `${latestNotYetIn} not in`
+          notYetIn > 0 && `${notYetIn} not in`
         ]
           .filter(Boolean)
           .join(" · ") || "all good",

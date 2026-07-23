@@ -33,6 +33,7 @@ export function AskNote({
   const [savedText, setSavedText] = useState(initialText.trim());
   const [savedTo, setSavedTo] = useState<string | undefined>(initialTo);
   const [pending, setPending] = useState(false);
+  const [sent, setSent] = useState(false);
   const [, startTransition] = useTransition();
   const router = useRouter();
   const apiBase = useCustomerApiBase();
@@ -48,7 +49,11 @@ export function AskNote({
     if (!trimmed) return;
     setPending(true);
     try {
-      const to = extractMention(text).person?.id;
+      // Strip the "@Name" mention out of the message itself - it's rendered
+      // as its own chip next to the text, so leaving it in would show the
+      // name twice (e.g. "@Srimathi @Srimathi ok").
+      const { person, rest } = extractMention(text);
+      const to = person?.id;
       const res = await fetch(`${apiBase}/ceo-log`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -57,15 +62,22 @@ export function AskNote({
           key: actionKey,
           programmeId,
           askText,
-          text: trimmed,
+          text: rest,
           to
         })
       });
       if (!res.ok) throw new Error("save failed");
-      setSavedText(trimmed);
+      // The server lightly copyedits the note (spelling/grammar/casing) before
+      // saving and emailing it - use that returned text so what's shown here
+      // matches exactly what the lead received.
+      const data = await res.json().catch(() => null);
+      const finalText = typeof data?.text === "string" ? data.text : rest;
+      setSavedText(finalText);
       setSavedTo(to);
       setText("");
       setOpen(false);
+      setSent(true);
+      window.setTimeout(() => setSent(false), 2200);
       startTransition(() => router.refresh());
     } catch {
       // keep the text so she can retry; nothing lost
@@ -87,16 +99,20 @@ export function AskNote({
             )}
             {savedText}
           </p>
-          <button
-            type="button"
-            onClick={() => {
-              setText(savedText);
-              setOpen(true);
-            }}
-            className="text-[10px] text-ink-400 hover:text-coral shrink-0"
-          >
-            edit
-          </button>
+          {sent ? (
+            <span className="text-[10px] font-medium text-[#2F6A4A] shrink-0">Sent ✓</span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setText(savedPerson ? `@${savedPerson.first} ${savedText}` : savedText);
+                setOpen(true);
+              }}
+              className="text-[10px] text-ink-400 hover:text-coral shrink-0"
+            >
+              edit
+            </button>
+          )}
         </div>
       )}
 

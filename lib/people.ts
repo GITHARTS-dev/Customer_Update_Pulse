@@ -48,14 +48,22 @@ export function defaultPersonForLead(leadName: string | undefined): Person {
 
 /**
  * Extracts the first @mention in a note and returns the matched person plus the
- * text with that leading mention token stripped for display. Only names in
- * PEOPLE match; an @something-else is left in the text untouched.
+ * text with that mention token stripped out. Only names in PEOPLE match; an
+ * @something-else is left in the text untouched. Stripping the token matters
+ * because callers also render "@Name" as a separate chip - leaving it in the
+ * text would show the name twice.
  */
 export function extractMention(text: string): { person?: Person; rest: string } {
   const m = text.match(/@([\p{L}]+)/u);
   if (m) {
     const person = personByMention(m[1]);
-    if (person) return { person, rest: text };
+    if (person) {
+      const start = m.index ?? 0;
+      const rest = (text.slice(0, start) + text.slice(start + m[0].length))
+        .replace(/\s+/g, " ")
+        .trim();
+      return { person, rest };
+    }
   }
   return { rest: text };
 }

@@ -279,3 +279,47 @@ export async function generateNarratives(
   }
   return out;
 }
+
+// ── Note copyediting ─────────────────────────────────────────
+// The short reply Sreema types back to a lead (e.g. "ok" or a quick line) is
+// both shown on the lead's check-in and emailed to them. Claude only lightly
+// copyedits it here - fixing spelling/grammar/casing and softening a blunt
+// tone - it never rewrites it into new content or a full narrative.
+const NOTE_SYSTEM_PROMPT = `You lightly copyedit a short note before it is shown to its recipient and emailed to them. This is copyediting, NOT rewriting or summarising.
+
+Rules (inviolable):
+- Keep the author's own words, phrasing, and meaning. Change as little as possible.
+- Fix spelling mistakes and grammatical errors only.
+- Capitalise correctly: start sentences with a capital letter, and capitalise names properly (e.g. "srimathi" becomes "Srimathi", "savio" becomes "Savio").
+- If the note reads as blunt or terse, soften it into something polite and respectful, without adding new information, opinions, or padding that wasn't implied. A one-word reply like "ok" may become "Sounds good." - never invent detail the author did not say.
+- Do not add a greeting or sign-off - those are added separately elsewhere. Return only the corrected note itself.
+- Never use em-dashes.
+- Output ONLY the corrected note text, nothing else. No quotes, no preamble, no explanation.`;
+
+/**
+ * Lightly copyedits a short note before it's persisted and emailed: fixes
+ * spelling, grammar and capitalisation, and softens a blunt tone into
+ * something polite, all while keeping the author's own words. Falls back to
+ * the original text untouched if Claude is unavailable or errors, since this
+ * is a best-effort polish, never a hard requirement.
+ */
+export async function refineNote(note: string): Promise<string> {
+  const trimmed = note.trim();
+  if (!trimmed || !process.env.ANTHROPIC_API_KEY) return trimmed;
+  try {
+    const client = new Anthropic();
+    const response = await client.messages.create({
+      model: MODEL,
+      max_tokens: 300,
+      system: NOTE_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: trimmed }]
+    });
+    const textBlock = response.content.find((b) => b.type === "text");
+    if (!textBlock || textBlock.type !== "text") return trimmed;
+    const cleaned = textBlock.text.trim().replace(/^"+|"+$/g, "");
+    return cleaned || trimmed;
+  } catch (err) {
+    console.error("[claude] refineNote failed:", (err as Error).message);
+    return trimmed;
+  }
+}

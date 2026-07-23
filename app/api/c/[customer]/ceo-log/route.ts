@@ -6,6 +6,7 @@ import { readCeoLog, setAction, setLeadView, setNote, setView } from "@/lib/ceo-
 import { ACTION_LABEL, type ActionStatus } from "@/lib/actions";
 import { defaultPersonForLead, personById, type Person } from "@/lib/people";
 import { notifyActionEmail, notifyNoteEmail } from "@/lib/email";
+import { refineNote } from "@/lib/claude";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,23 +83,27 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     const recipient = mentioned ?? (p ? defaultPersonForLead(p.lead) : undefined);
     const askText = typeof body.askText === "string" ? body.askText : "";
 
+    // Light copyedit before it's saved/emailed: fixes spelling, grammar and
+    // casing, and softens the tone, without turning it into new content.
+    const text = await refineNote(body.text);
+
     await setNote(customer, body.key, {
-      text: body.text,
+      text,
       to: recipient?.id,
       askText,
       programmeId
     });
 
     // Only email on an actual (non-empty) note, to the resolved recipient.
-    if (body.text.trim() && recipient && p) {
+    if (text && recipient && p) {
       await sendNoteMail({
         to: recipient,
         programmeName: p.name,
         askText,
-        note: body.text.trim()
+        note: text
       });
     }
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, text });
   }
 
   return NextResponse.json({ error: "invalid type" }, { status: 400 });
