@@ -5,7 +5,7 @@ import type { Customer } from "./customers";
 import { submissionsListIdFor } from "./customer-lists";
 import { fetchSubmissionsListItems } from "./submissions-fetch";
 import { resolveProgrammes, byIdOf } from "./programme-store";
-import { isOperationalSignal, parsePeopleNote, personToLine, safeVibe } from "./helpers";
+import { parsePeopleNote, personToLine, safeVibe } from "./helpers";
 import { buildNameList, redactNames } from "./redact";
 import {
   updateSharePointListItemFields,
@@ -13,7 +13,7 @@ import {
 } from "./sharepoint";
 
 /**
- * Submissions live in a per-customer SharePoint list — one row per programme
+ * Submissions live in a per-customer SharePoint list - one row per programme
  * per week. This is the single source of truth. Reads take the latest row per
  * programme; writes upsert the row for that programme + week. Every function
  * takes the Customer so it reads/writes that customer's own list; the
@@ -22,7 +22,7 @@ import {
 
 const SITE_ID = process.env.SHAREPOINT_SITE_ID ?? "";
 
-/** Programme lookup used when mapping rows — the resolved list (config + custom). */
+/** Programme lookup used when mapping rows - the resolved list (config + custom). */
 type ProgrammeMap = Record<string, Programme>;
 
 const COL = {
@@ -60,7 +60,7 @@ function topicsToText(topics: OpenTopic[]): string {
 function submissionToFields(sub: PulseSubmission, byId: ProgrammeMap): Record<string, unknown> {
   const programmeName = byId[sub.programmeId]?.name ?? sub.programmeId;
   return {
-    [COL.title]: `${programmeName} — week ${sub.weekNumber}`,
+    [COL.title]: `${programmeName}, week ${sub.weekNumber}`,
     [COL.submittedBy]: sub.submittedBy,
     [COL.accountable]: sub.accountable ?? "",
     [COL.programmesUpdated]: programmeName,
@@ -68,7 +68,7 @@ function submissionToFields(sub: PulseSubmission, byId: ProgrammeMap): Record<st
     [COL.peopleSignals]: peopleToText(sub.people),
     [COL.openDecisions]: topicsToText(sub.openTopics),
     [COL.leadVoice]: sub.leadFreeText ?? "",
-    // Authoritative machine copy — the whole submission, for exact round-trip.
+    // Authoritative machine copy - the whole submission, for exact round-trip.
     [COL.aiJson]: JSON.stringify(sub),
     [COL.weekNumber]: sub.weekNumber,
     [COL.submittedAt]: sub.submittedAt,
@@ -141,13 +141,15 @@ function rowToSubmission(
         if (parsed.jira) sub.jira = { ...parsed.jira, completionPct };
       }
     } catch {
-      // Not valid JSON (e.g. a row created by hand) — the column-derived
+      // Not valid JSON (e.g. a row created by hand) - the column-derived
       // submission above is already complete and correct on its own.
     }
   }
 
-  // Final guarantee: strip any person's name from everything Claude wrote,
-  // using the names the lead actually flagged.
+  // Strip any person's name from what CLAUDE wrote (narrative + essence) -
+  // those stay at no-names portfolio altitude. Signals are deliberately NOT
+  // redacted or filtered: they are the lead's own sentences, shown verbatim
+  // (names and numbers included), with Claude only having classified them.
   const nameList = buildNameList([
     asString(fields[COL.peopleSignals]),
     asString(fields[COL.accountable])
@@ -156,15 +158,7 @@ function rowToSubmission(
     sub.aiNarrative = redactNames(sub.aiNarrative, nameList);
     sub.aiEssence = redactNames(sub.aiEssence, nameList);
     if (sub.nextStep) sub.nextStep = redactNames(sub.nextStep, nameList);
-    sub.signals = (sub.signals ?? []).map((s) => ({
-      ...s,
-      text: redactNames(s.text, nameList)
-    }));
   }
-
-  // Delivery/Jira-flavoured signals never belong at CEO altitude — strip them
-  // here so even older stored submissions stop surfacing ticket counts.
-  sub.signals = (sub.signals ?? []).filter((s) => !isOperationalSignal(s.text));
 
   return sub;
 }

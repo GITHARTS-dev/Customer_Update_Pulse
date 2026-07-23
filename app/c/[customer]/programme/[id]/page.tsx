@@ -6,12 +6,12 @@ import { SidebarData } from "@/components/SidebarData";
 import { BabyElephant } from "@/components/BabyElephant";
 import { SunRays } from "@/components/SunRays";
 import { ActionButtons } from "@/components/ActionButtons";
+import { AskNote } from "@/components/AskNote";
 import { FileViewedButton } from "@/components/FileViewedButton";
-import { NoteToLead } from "@/components/NoteToLead";
 import { VibeTrajectory } from "@/components/VibeTrajectory";
-import { JiraCard } from "@/components/JiraCard";
+import { LiveJiraCard } from "@/components/LiveJiraCard";
 import { ProgrammeViewTracker } from "@/components/ProgrammeViewTracker";
-import { ProgrammeBodySkeleton } from "@/components/Skeletons";
+import { ProgrammeBodySkeleton, JiraCardSkeleton } from "@/components/Skeletons";
 import { CUSTOMERS, getCustomer, type Customer } from "@/lib/customers";
 import { resolveProgrammes, byIdOf } from "@/lib/programme-store";
 import {
@@ -20,15 +20,26 @@ import {
   parseBold,
   relativeTime,
   safeVibe,
+  titleCaseName,
   VIBE_COLOR,
   VIBE_TONE
 } from "@/lib/helpers";
 import { readAllSubmissions } from "@/lib/store";
 import { readCeoLog } from "@/lib/ceo-store";
 import { readProgrammeHistory } from "@/lib/history-store";
-import { VIBE_LABEL, type Programme, type SignalKind } from "@/lib/types";
+import { VIBE_LABEL, type JiraSnapshot, type Programme, type SignalKind } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+/** Fallback when there's no stored snapshot; the live board fills it in. */
+const EMPTY_JIRA: JiraSnapshot = {
+  total: 0,
+  done: 0,
+  inProgress: 0,
+  todo: 0,
+  completionPct: 0,
+  stalledNotes: []
+};
 
 // Enumerate customer + programme paths so Azure SWA registers and serves this
 // nested dynamic route (config programmes). Pages stay force-dynamic (live
@@ -96,29 +107,41 @@ async function ProgrammeBody({
 
   const submission = submissionsByProgramme[programme.id];
   const priorViewedAt = ceoLog.views[programme.id];
-  const ceoNote = ceoLog.notes[programme.id];
 
   if (!submission) {
     return (
-      <section className="card px-6 sm:px-10 py-8 sm:py-12 text-center">
-        <div className="flex justify-center mb-4 opacity-50">
-          <BabyElephant vibe="quiet_week" size={120} background={false} />
-        </div>
-        <h1 className="font-serif text-2xl sm:text-3xl text-ink-900">{programme.name}</h1>
-        <p className="mt-2 text-sm text-ink-500">No update on this one yet.</p>
-        {programme.subProgrammes && programme.subProgrammes.length > 0 && (
-          <div className="mt-4 flex flex-wrap justify-center gap-1.5">
-            {programme.subProgrammes.map((s) => (
-              <span
-                key={s}
-                className="pill text-[10px] bg-sand-100 text-ink-500 border border-sand-200"
-              >
-                {s}
-              </span>
-            ))}
+      <>
+        <section className="card px-6 sm:px-10 py-8 sm:py-12 text-center">
+          <div className="flex justify-center mb-4 opacity-50">
+            <BabyElephant vibe="going_well" size={120} background={false} />
           </div>
-        )}
-      </section>
+          <h1 className="font-serif text-2xl sm:text-3xl text-ink-900">{programme.name}</h1>
+          <p className="mt-2 text-sm text-ink-500">No update on this one yet.</p>
+          {programme.subProgrammes && programme.subProgrammes.length > 0 && (
+            <div className="mt-4 flex flex-wrap justify-center gap-1.5">
+              {programme.subProgrammes.map((s) => (
+                <span
+                  key={s}
+                  className="pill text-[10px] bg-sand-100 text-ink-500 border border-sand-200"
+                >
+                  {s}
+                </span>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Delivery reflects the programme's Jira board, which exists whether or
+            not the lead has checked in - so it still shows here. */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+          <Suspense fallback={<JiraCardSkeleton />}>
+            <LiveJiraCard projectKey={programme.jiraProjectKey} fallback={EMPTY_JIRA} />
+          </Suspense>
+          {history.length > 0 && (
+            <VibeTrajectory history={history} currentVibe="going_well" />
+          )}
+        </div>
+      </>
     );
   }
 
@@ -222,7 +245,7 @@ async function ProgrammeBody({
           <section className="card px-5 sm:px-6 py-5">
             <h3 className="font-serif text-lg text-ink-900 mb-1">Signals this week</h3>
             <p className="text-[11px] text-ink-400 mb-3">
-              Claude's read of the whole check-in — wins, watch-outs, and asks.
+              The lead's own words this week, flagged as wins, watch-outs, and asks.
             </p>
             {signals.length === 0 && attachments.length === 0 ? (
               <p className="text-sm text-ink-400">No signals flagged.</p>
@@ -244,18 +267,33 @@ async function ProgrammeBody({
                             const state = ceoLog.actions[key];
                             const status = state?.status ?? ("open" as const);
                             const handled = state !== undefined;
+                            const note = ceoLog.notes[key];
                             return (
-                              <li key={i} className="flex items-start gap-3">
-                                <span
-                                  className={`flex-1 text-sm leading-snug ${
-                                    handled
-                                      ? "text-ink-400 line-through decoration-1"
-                                      : "text-ink-900 font-medium"
-                                  }`}
-                                >
-                                  {sig.text}
-                                </span>
-                                <ActionButtons actionKey={key} initialStatus={status} />
+                              <li key={i}>
+                                <div className="flex items-start gap-3">
+                                  <span
+                                    className={`flex-1 text-sm leading-snug ${
+                                      handled
+                                        ? "text-ink-400 line-through decoration-1"
+                                        : "text-ink-900 font-medium"
+                                    }`}
+                                  >
+                                    {sig.text}
+                                  </span>
+                                  <ActionButtons
+                                    actionKey={key}
+                                    initialStatus={status}
+                                    programmeId={programme.id}
+                                    askText={sig.text}
+                                  />
+                                </div>
+                                <AskNote
+                                  actionKey={key}
+                                  programmeId={programme.id}
+                                  askText={sig.text}
+                                  initialText={note?.text ?? ""}
+                                  initialTo={note?.to}
+                                />
                               </li>
                             );
                           })}
@@ -380,44 +418,15 @@ async function ProgrammeBody({
             )}
           </section>
 
-          {submission.openTopics.length > 0 && (
-            <section className="card px-5 sm:px-6 py-5">
-              <h3 className="font-serif text-lg text-ink-900 mb-1">Discussion points</h3>
-              <p className="text-[11px] text-ink-400 mb-3">
-                The lead's open decisions, in their words. Mark each as you handle
-                it — the pulse board reflects the same.
-              </p>
-              <ul className="space-y-2.5">
-                {submission.openTopics.map((topic, i) => {
-                  const key = actionKey("topic", programme.id, topic.title);
-                  const state = ceoLog.actions[key];
-                  const status = state?.status ?? ("open" as const);
-                  const handled = state !== undefined;
-                  return (
-                    <li key={i} className="flex items-start justify-between gap-3">
-                      <p
-                        className={`flex-1 text-sm leading-snug ${
-                          handled ? "text-ink-400 line-through decoration-1" : "text-ink-800"
-                        }`}
-                      >
-                        {topic.title}
-                      </p>
-                      <ActionButtons actionKey={key} initialStatus={status} />
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          )}
-
-          <NoteToLead programmeId={programme.id} initialText={ceoNote?.text ?? ""} />
         </div>
 
         {/* Right column: trend, then delivery, then people */}
         <div className="lg:col-span-2 flex flex-col gap-4">
           <VibeTrajectory history={history} currentVibe={vibe} />
 
-          {submission.jira.total > 0 && <JiraCard snapshot={submission.jira} />}
+          <Suspense fallback={<JiraCardSkeleton />}>
+            <LiveJiraCard projectKey={programme.jiraProjectKey} fallback={submission.jira} />
+          </Suspense>
 
           <section className="card px-5 py-5">
             <h3 className="font-serif text-lg text-ink-900 mb-3">Key people</h3>
@@ -431,7 +440,7 @@ async function ProgrammeBody({
                     className="px-3 py-2 rounded-lg bg-sand-50 border border-sand-200"
                   >
                     <span className="text-sm font-medium text-ink-900 block truncate">
-                      {p.name}
+                      {titleCaseName(p.name)}
                     </span>
                     {p.note && p.note !== p.name && (
                       <p className="text-[11px] text-ink-500 mt-0.5">{p.note}</p>
@@ -443,17 +452,6 @@ async function ProgrammeBody({
           </section>
         </div>
       </div>
-
-      {submission.leadFreeText && (
-        <section className="px-1">
-          <p className="text-[9px] tracking-[0.14em] uppercase text-ink-400 mb-1">
-            In {submission.submittedBy}'s words
-          </p>
-          <p className="font-serif text-base text-ink-700 italic">
-            “{submission.leadFreeText}”
-          </p>
-        </section>
-      )}
     </>
   );
 }

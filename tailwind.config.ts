@@ -9,7 +9,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Cool violet-grey canvas — blended from Evora (violet) + HARTS neutrals
+        // Cool violet-grey canvas - blended from Evora (violet) + HARTS neutrals
         sand: {
           50: "#F7F6FC",
           100: "#F0EEF8",
@@ -38,7 +38,7 @@ const config: Config = {
         slate: "#3E8FCF"
       },
       fontFamily: {
-        // DM Sans everywhere — the loaded webfont via next/font's CSS variable,
+        // DM Sans everywhere - the loaded webfont via next/font's CSS variable,
         // falling back to the system sans stack. "serif" is kept as a key (many
         // headings still use `font-serif`) but now resolves to DM Sans too, so
         // the whole UI is one typeface.

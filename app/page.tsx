@@ -3,20 +3,20 @@ import Link from "next/link";
 import { primaryCustomer } from "@/lib/customers";
 import { ProfileBadge } from "@/components/ProfileBadge";
 
-/** The HARTS heart-cluster rainbow — same brand thread used in the sidebar. */
+/** The HARTS heart-cluster rainbow - same brand thread used in the sidebar. */
 const RAINBOW =
   "linear-gradient(90deg, #D6473F 0%, #E8A020 28%, #3BA46A 55%, #3E8FCF 78%, #6C47E8 100%)";
 
 /**
- * The HARTS launchpad — the platform's front door. Kept a static server page
+ * The HARTS launchpad - the platform's front door. Kept a static server page
  * (no server-side session read) so Azure SWA serves it instantly and it can
- * never repeat the dynamic-root redirect loop this app hit earlier — the
+ * never repeat the dynamic-root redirect loop this app hit earlier - the
  * signed-in user's name is fetched client-side instead, in ProfileBadge.
  */
 export default function Launchpad() {
   return (
     <main className="relative h-screen overflow-hidden bg-cream px-5 py-8 flex flex-col items-center justify-center">
-      {/* Ambient brand glow — echoes each workspace's accent, kept faint. Its
+      {/* Ambient brand glow - echoes each workspace's accent, kept faint. Its
           own clipped layer so it can never affect the fixed corner badges. */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
         <div
@@ -29,7 +29,7 @@ export default function Launchpad() {
         />
       </div>
 
-      {/* Corner badges — logo left, account right. Fixed so they hold their
+      {/* Corner badges - logo left, account right. Fixed so they hold their
           spot regardless of how tall the centered content below happens to be. */}
       <div className="fixed top-4 left-4 sm:top-6 sm:left-6 z-20 flex items-center rounded-full border border-sand-200 bg-cream/90 backdrop-blur px-3.5 py-2 shadow-card">
         <Image

@@ -1,11 +1,13 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { BabyElephant } from "@/components/BabyElephant";
 import { getCustomer, primaryCustomer } from "@/lib/customers";
+import { personById } from "@/lib/people";
+import { ACTION_LABEL, type ActionStatus } from "@/lib/actions";
 import { useCustomerId } from "@/lib/use-customer";
 import {
   VIBE_LABEL,
@@ -16,11 +18,30 @@ import {
 } from "@/lib/types";
 import { VIBE_COLOR, relativeTime } from "@/lib/helpers";
 
+/** Client mirror of the CEO log shape (ceo-store is server-only). */
+interface ClientNote {
+  text: string;
+  at: string;
+  to?: string;
+  askText?: string;
+  programmeId?: string;
+}
+interface ClientAction {
+  status: ActionStatus;
+  at: string;
+  askText?: string;
+  programmeId?: string;
+}
+interface ClientLog {
+  notes: Record<string, ClientNote>;
+  actions: Record<string, ClientAction>;
+  views: Record<string, string>;
+}
+
 const VIBE_HELP: Record<Vibe, string> = {
   going_well: "Energy is up, things are moving, no decisions waiting on the CEO.",
   watch_it: "Something has cooled, a person, a date, or a decision is wobbling.",
-  stuck: "Waiting on something important. A little help this week would go a long way.",
-  quiet_week: "Nothing material to flag, scoping or early phase."
+  stuck: "Waiting on something important. A little help this week would go a long way."
 };
 
 const FREE_TEXT_MIN = 20;
@@ -65,7 +86,7 @@ function isThisWeek(iso: string | undefined): boolean {
 
 function peopleSignalsToText(s: PulseSubmission): string {
   // "name: note" (or just the name) so the round-trip stays stable and never
-  // re-embeds the name into its own note — see personToLine / parsePersonLine.
+  // re-embeds the name into its own note - see personToLine / parsePersonLine.
   return s.people
     .map((p) => (p.note && p.note !== p.name ? `${p.name}: ${p.note}` : p.name))
     .join("\n");
@@ -151,11 +172,9 @@ function LeadInputForm() {
   const [existingByProgramme, setExistingByProgramme] = useState<
     Record<string, PulseSubmission>
   >({});
-  const [notesByProgramme, setNotesByProgramme] = useState<
-    Record<string, { text: string; at: string }>
-  >({});
-  // When Sreema last opened each programme — used to tell the lead she's looked.
-  const [viewsByProgramme, setViewsByProgramme] = useState<Record<string, string>>({});
+  // The full CEO log - Sreema's per-ask responses (actions + notes) and her
+  // "viewed" marks - so each programme can show exactly what she sent back.
+  const [ceoLog, setCeoLog] = useState<ClientLog>({ notes: {}, actions: {}, views: {} });
   // Programmes the lead has actively edited this session = the ones to submit.
   const [included, setIncluded] = useState<Set<string>>(new Set());
   const includedRef = useRef<Set<string>>(new Set());
@@ -168,6 +187,33 @@ function LeadInputForm() {
   const [dragActive, setDragActive] = useState(false);
 
   const programme = byId[current] ?? programmes[0];
+
+  // Sreema's responses for the current programme, merged per ask: an action
+  // (Need more info / Noted / Let's talk) and/or a note (tagged with who it was
+  // directed to). This is the on-screen half of "notify the lead".
+  const sreemaResponses = useMemo(() => {
+    const byAsk = new Map<
+      string,
+      { askText: string; at: string; statusLabel?: string; note?: string; to?: string }
+    >();
+    const bump = (askText: string, at: string) => {
+      const e = byAsk.get(askText) ?? { askText, at };
+      if (at > e.at) e.at = at;
+      byAsk.set(askText, e);
+      return e;
+    };
+    for (const a of Object.values(ceoLog.actions)) {
+      if (a.programmeId !== current || !a.askText) continue;
+      bump(a.askText, a.at).statusLabel = ACTION_LABEL[a.status];
+    }
+    for (const n of Object.values(ceoLog.notes)) {
+      if (n.programmeId !== current) continue;
+      const e = bump(n.askText ?? "", n.at);
+      e.note = n.text;
+      e.to = n.to;
+    }
+    return Array.from(byAsk.values()).sort((a, b) => (a.at < b.at ? 1 : -1));
+  }, [ceoLog, current]);
 
   // Load every programme's latest submission once, for pre-fill + banners.
   useEffect(() => {
@@ -206,27 +252,22 @@ function LeadInputForm() {
     };
   }, [apiBase]);
 
-  // Load Sreema's notes back to the leads, so each programme shows any reply
-  // waiting for them. This is the CEO side of the conversation.
+  // Load Sreema's responses back to the leads (her actions + notes, per ask),
+  // so each programme shows what she sent back. This is the CEO side.
   useEffect(() => {
     let cancelled = false;
     fetch(`${apiBase}/ceo-log`)
-      .then((r) => (r.ok ? r.json() : { notes: {}, views: {} }))
-      .then(
-        (log: {
-          notes?: Record<string, { text: string; at: string }>;
-          views?: Record<string, string>;
-        }) => {
-          if (cancelled) return;
-          setNotesByProgramme(log?.notes ?? {});
-          setViewsByProgramme(log?.views ?? {});
-        }
-      )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((log: Partial<ClientLog> | null) => {
+        if (cancelled) return;
+        setCeoLog({
+          notes: log?.notes ?? {},
+          actions: log?.actions ?? {},
+          views: log?.views ?? {}
+        });
+      })
       .catch(() => {
-        if (!cancelled) {
-          setNotesByProgramme({});
-          setViewsByProgramme({});
-        }
+        if (!cancelled) setCeoLog({ notes: {}, actions: {}, views: {} });
       });
     return () => {
       cancelled = true;
@@ -520,22 +561,43 @@ function LeadInputForm() {
           </div>
         )}
 
-        {notesByProgramme[current]?.text && (
-          <div className="mb-4 px-4 py-3 rounded-lg bg-[#ECEAF7] border border-[#D0CBE2] flex items-start gap-3">
-            <span className="text-base leading-none">✉</span>
-            <div className="min-w-0">
-              <p className="text-[10px] uppercase tracking-[0.14em] text-[#6C6689] mb-0.5">
-                A note from Sreema
-              </p>
-              <p className="text-sm text-ink-800 whitespace-pre-wrap break-words">
-                {notesByProgramme[current].text}
-              </p>
-            </div>
+        {sreemaResponses.length > 0 && (
+          <div className="mb-4 px-4 py-3 rounded-lg bg-[#ECEAF7] border border-[#D0CBE2]">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-[#6C6689] mb-2 flex items-center gap-1.5">
+              <span className="text-sm leading-none">✉</span> From Sreema
+            </p>
+            <ul className="space-y-2.5">
+              {sreemaResponses.map((r, i) => {
+                const person = personById(r.to);
+                return (
+                  <li key={i} className="text-sm min-w-0">
+                    {r.askText && (
+                      <p className="text-[11px] text-ink-500 mb-0.5 break-words">
+                        re: “{r.askText}”
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {r.statusLabel && (
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-white/70 text-[#6C6689] border border-[#D0CBE2]">
+                          {r.statusLabel}
+                        </span>
+                      )}
+                      {r.note && (
+                        <span className="text-ink-800 whitespace-pre-wrap break-words">
+                          {person && <span className="font-medium text-coral">@{person.first} </span>}
+                          {r.note}
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         )}
 
         {(() => {
-          const viewedAt = viewsByProgramme[current];
+          const viewedAt = ceoLog.views[current];
           const sub = existingByProgramme[current];
           const seen =
             viewedAt &&
@@ -590,8 +652,8 @@ function LeadInputForm() {
           </section>
 
           <SectionCard label="How does it feel this week?" covered={curCoverage.vibe}>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              {(["going_well", "watch_it", "stuck", "quiet_week"] as Vibe[]).map((v) => {
+            <div className="grid grid-cols-3 gap-2.5">
+              {(["going_well", "watch_it", "stuck"] as Vibe[]).map((v) => {
                 const selected = cur.vibe === v && cur.vibeTouched;
                 return (
                   <button
@@ -683,7 +745,7 @@ function LeadInputForm() {
               <p className="mt-1.5 text-[11px] text-ink-400">
                 {cur.freeText.trim().length < FREE_TEXT_MIN
                   ? `A few more words. ${FREE_TEXT_MIN - cur.freeText.trim().length} to go.`
-                  : "A real sentence, please — the CEO reads this."}
+                  : "A real sentence, please. The CEO reads this."}
               </p>
             )}
           </SectionCard>
@@ -1167,7 +1229,7 @@ function LineCounter({ value, disabled }: { value: string; disabled: boolean }) 
   return (
     <p className={`mt-1.5 text-[11px] ${over ? "text-amber font-medium" : "text-ink-400"}`}>
       {n} / {LINES_MAX} lines
-      {over && ` — only the first ${LINES_MAX} will be sent`}
+      {over && ` - only the first ${LINES_MAX} will be sent`}
     </p>
   );
 }

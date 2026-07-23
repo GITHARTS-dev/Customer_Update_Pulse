@@ -9,13 +9,7 @@ import { VibeBoard, type BoardEntry } from "@/components/VibeBoard";
 import { AttentionBand } from "@/components/AttentionBand";
 import { KpiSkeleton, HeroBoardSkeleton, AttentionSkeleton } from "@/components/Skeletons";
 import { getCustomer, type Customer } from "@/lib/customers";
-import {
-  actionKey,
-  emotionalOneLiner,
-  freshnessOf,
-  greeting,
-  safeVibe
-} from "@/lib/helpers";
+import { emotionalOneLiner, freshnessOf, greeting, safeVibe } from "@/lib/helpers";
 import { readAllSubmissions } from "@/lib/store";
 import { readCeoLog } from "@/lib/ceo-store";
 import { resolveProgrammes } from "@/lib/programme-store";
@@ -34,8 +28,8 @@ interface AttentionItem {
 
 /**
  * One derivation of everything a customer's dashboard shows, cached per request
- * (keyed by the customer) so the KPI tiles, hero+board, and attention rail —
- * three independent Suspense children — share ONE SharePoint read.
+ * (keyed by the customer) so the KPI tiles, hero+board, and attention rail -
+ * three independent Suspense children - share ONE SharePoint read.
  */
 const loadDashboard = cache(async (customer: Customer) => {
   const [submissionsByProgramme, ceoLog, programmes] = await Promise.all([
@@ -48,8 +42,7 @@ const loadDashboard = cache(async (customer: Customer) => {
   const vibeCounts: Record<Vibe, number> = {
     going_well: 0,
     watch_it: 0,
-    stuck: 0,
-    quiet_week: 0
+    stuck: 0
   };
   let stale = 0;
   let missing = 0;
@@ -68,15 +61,13 @@ const loadDashboard = cache(async (customer: Customer) => {
     }
   }
 
-  const onTrack = vibeCounts.going_well;
   const watching = vibeCounts.watch_it;
   const stuckCount = vibeCounts.stuck;
 
   const latestVibeCounts: Record<Vibe, number> = {
     going_well: 0,
     watch_it: 0,
-    stuck: 0,
-    quiet_week: 0
+    stuck: 0
   };
   let latestNotYetIn = 0;
   for (const p of programmes) {
@@ -93,9 +84,7 @@ const loadDashboard = cache(async (customer: Customer) => {
       ? "stuck"
       : watching > 0
         ? "watch_it"
-        : onTrack >= Math.max(1, Math.ceil(freshCount / 2))
-          ? "going_well"
-          : "quiet_week";
+        : "going_well";
 
   const headline = emotionalOneLiner(vibeCounts, freshCount);
   const supporting =
@@ -109,11 +98,7 @@ const loadDashboard = cache(async (customer: Customer) => {
     return s.openTopics.map((t) => ({ programmeId: p.id, topic: t }));
   });
 
-  const openAttentionCount = attentionItems.filter((it) => {
-    const key = actionKey("topic", it.programmeId, it.topic.title);
-    return !ceoLog.actions[key];
-  }).length;
-  const handledCount = attentionItems.length - openAttentionCount;
+  const openAttentionCount = attentionItems.length;
 
   const stats = [
     {
@@ -148,14 +133,7 @@ const loadDashboard = cache(async (customer: Customer) => {
     {
       label: "Open decisions",
       value: String(openAttentionCount),
-      hint:
-        openAttentionCount === 0
-          ? handledCount > 0
-            ? `${handledCount} handled`
-            : "nothing waiting"
-          : handledCount > 0
-            ? `${handledCount} handled`
-            : "see needs you",
+      hint: openAttentionCount === 0 ? "nothing waiting" : "raised by the leads",
       tone: openAttentionCount === 0 ? ("warm" as const) : ("watch" as const)
     }
   ];
@@ -292,11 +270,10 @@ async function HeroAndBoard({ customer }: { customer: Customer }) {
 }
 
 async function AttentionSection({ customer }: { customer: Customer }) {
-  const { attentionItems, ceoLog, programmes } = await loadDashboard(customer);
+  const { attentionItems, programmes } = await loadDashboard(customer);
   return (
     <AttentionBand
       items={attentionItems}
-      ceoLog={ceoLog}
       programmes={programmes}
       customerId={customer.id}
     />

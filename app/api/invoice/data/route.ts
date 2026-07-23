@@ -5,7 +5,7 @@ import { loadInvoiceData } from "@/lib/invoice-data";
 
 /**
  * The Invoice Dashboard SPA's one data endpoint (replaces the old generic
- * Graph proxy). Auth rides the platform's single NextAuth sign-in — no
+ * Graph proxy). Auth rides the platform's single NextAuth sign-in - no
  * separate invoice sign-in. Fetching + parsing the workbook happens here,
  * server-side, so every sheet read shares one Graph workbook session and runs
  * concurrently, and the parsed result is cached across requests/users.

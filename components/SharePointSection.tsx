@@ -14,7 +14,7 @@ interface SharePointSectionProps {
 /**
  * Renders as its own async Server Component so a SharePoint token hiccup
  * (expired, revoked, or a failed refresh for this one viewer) only replaces
- * this card with a short message — it never throws, so it can't take down
+ * this card with a short message - it never throws, so it can't take down
  * the rest of the dashboard sitting next to it on the same page.
  */
 export async function SharePointSection({

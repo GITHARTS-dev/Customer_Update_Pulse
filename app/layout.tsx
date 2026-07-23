@@ -12,7 +12,7 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "HARTS — Customer Pulse",
+  title: "HARTS · Customer Pulse",
   description:
     "An emotional, sentiment-led view of HARTS' customer transformation programmes."
 };

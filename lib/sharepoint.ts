@@ -34,7 +34,7 @@ const MAX_ATTEMPTS = 3;
 const REQUEST_TIMEOUT_MS = 15000;
 
 function backoff(attempt: number): Promise<void> {
-  // 300ms, 600ms — short enough to stay within a page render, long enough to
+  // 300ms, 600ms - short enough to stay within a page render, long enough to
   // ride out a blip or a Graph 429/5xx.
   return new Promise((resolve) => setTimeout(resolve, attempt * 300));
 }
@@ -72,7 +72,7 @@ async function graphFetch<T>(
       }
       return { ok: false, reason: "graph-error", status: res.status };
     } catch {
-      // Aborted (timeout) or a genuine network failure — worth another go.
+      // Aborted (timeout) or a genuine network failure - worth another go.
       clearTimeout(timer);
       if (attempt < MAX_ATTEMPTS) {
         await backoff(attempt);
@@ -136,7 +136,7 @@ export interface UploadedFile {
   url: string;
 }
 
-const SIMPLE_UPLOAD_MAX = 4 * 1024 * 1024; // 4 MB — Graph's simple-PUT ceiling
+const SIMPLE_UPLOAD_MAX = 4 * 1024 * 1024; // 4 MB - Graph's simple-PUT ceiling
 
 /**
  * Uploads a file to the site's default document library and returns its

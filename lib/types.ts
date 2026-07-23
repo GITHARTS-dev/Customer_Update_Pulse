@@ -1,4 +1,4 @@
-export type Vibe = "going_well" | "watch_it" | "stuck" | "quiet_week";
+export type Vibe = "going_well" | "watch_it" | "stuck";
 
 export interface Programme {
   id: string;
@@ -77,6 +77,5 @@ export interface PulseSubmission {
 export const VIBE_LABEL: Record<Vibe, string> = {
   going_well: "Going well",
   watch_it: "Watch it",
-  stuck: "Stuck",
-  quiet_week: "Quiet week"
+  stuck: "Stuck"
 };

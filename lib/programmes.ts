@@ -3,7 +3,7 @@ import type { Programme } from "./types";
 export const PROGRAMMES: Programme[] = [
   {
     id: "esp",
-    name: "ESP — Evora Service Partner",
+    name: "ESP - Evora Service Partner",
     shortName: "ESP",
     lead: "Srimathi Ravi",
     jiraProjectKey: "ESP"
@@ -19,7 +19,7 @@ export const PROGRAMMES: Programme[] = [
     name: "Evora-ACH Harmonization",
     shortName: "Evora-ACH",
     lead: "Hari Ram",
-    jiraProjectKey: "ACH"
+    jiraProjectKey: "EAH1DP"
   },
   {
     id: "ocm",

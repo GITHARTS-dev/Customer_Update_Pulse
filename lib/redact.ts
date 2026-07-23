@@ -8,13 +8,13 @@ import "server-only";
  * them at read time so the guarantee holds for every submission, old or new.
  *
  * Names to remove are taken from the lead's own people notes (and the
- * accountable person) — the exact names that end up in a narrative. We take
+ * accountable person) - the exact names that end up in a narrative. We take
  * only the leading run of capitalised words on each people line (that is where
  * a person's name sits), so ordinary words are left alone.
  */
 
 // Capitalised words that are role words, common nouns, weekdays, months, or
-// sentence starters — never treated as a person's name even when they lead a
+// sentence starters - never treated as a person's name even when they lead a
 // people line.
 const STOPWORDS = new Set(
   [

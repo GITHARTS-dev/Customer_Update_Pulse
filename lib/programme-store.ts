@@ -18,11 +18,11 @@ import type { Programme } from "./types";
  *   - `added`   : brand-new programmes the lead created.
  *   - `removed` : ids (config or added) the lead removed.
  *
- * Stored like the CEO log — a single sentinel row (`__programmes__`) inside the
+ * Stored like the CEO log - a single sentinel row (`__programmes__`) inside the
  * customer's own submissions list (JSON in AIGeneratedJSON), or a local JSON
  * file in dev. EVERYTHING here degrades to "no overrides" on any failure, so a
  * hiccup or an unconfigured customer simply falls back to the config
- * programmes — the app never ends up with an empty programme list.
+ * programmes - the app never ends up with an empty programme list.
  */
 export interface ProgrammeOverrides {
   added: Programme[];
@@ -84,7 +84,7 @@ async function readSPWithMeta(
     try {
       parsed = JSON.parse(raw) as Partial<ProgrammeOverrides>;
     } catch {
-      // Corrupt blob — treat as no overrides.
+      // Corrupt blob - treat as no overrides.
     }
   }
   return { ov: normalize(parsed), itemId: item.id };
@@ -125,7 +125,7 @@ export const readProgrammeOverrides = cache(
 
 /**
  * The effective programme list for a customer: config baseline minus removed,
- * plus added. Never throws — on any trouble it returns the config programmes,
+ * plus added. Never throws - on any trouble it returns the config programmes,
  * so the dashboard always has a programme list to show.
  */
 export const resolveProgrammes = cache(async (customer: Customer): Promise<Programme[]> => {

@@ -10,7 +10,7 @@ export interface BoardEntry {
   unseen: boolean;
 }
 
-export const VIBE_ORDER: Vibe[] = ["going_well", "watch_it", "stuck", "quiet_week"];
+export const VIBE_ORDER: Vibe[] = ["going_well", "watch_it", "stuck"];
 
 /**
  * Splits board entries into the fresh mood shelves (one per vibe) and the
@@ -33,22 +33,19 @@ export function computeBoard(entries: BoardEntry[]): {
 const VIBE_TINT: Record<Vibe, { bg: string; border: string }> = {
   going_well: { bg: "#3BA46A0D", border: "#3BA46A24" },
   watch_it: { bg: "#E8A02010", border: "#E8A0202C" },
-  stuck: { bg: "#D6473F0C", border: "#D6473F22" },
-  quiet_week: { bg: "#3E8FCF0C", border: "#3E8FCF22" }
+  stuck: { bg: "#D6473F0C", border: "#D6473F22" }
 };
 
 const VIBE_WHISPER: Record<Vibe, string> = {
   going_well: "humming along",
   watch_it: "worth a glance",
-  stuck: "needs your warmth",
-  quiet_week: "resting gently"
+  stuck: "needs your warmth"
 };
 
 const VIBE_EMPTY: Record<Vibe, string> = {
   going_well: "no one yet, the week is young",
   watch_it: "nothing to keep an eye on",
-  stuck: "nobody carrying anything heavy",
-  quiet_week: "no one resting this week"
+  stuck: "nobody carrying anything heavy"
 };
 
 /** Calm relief colour for the one empty state that should read as good news. */
@@ -73,7 +70,7 @@ export function VibeBoard({
   );
 }
 
-/** The dashed "awaiting check-in" row — its own card so the masonry can flow it. */
+/** The dashed "awaiting check-in" row - its own card so the masonry can flow it. */
 export function AwaitingRow({
   entries,
   customerId

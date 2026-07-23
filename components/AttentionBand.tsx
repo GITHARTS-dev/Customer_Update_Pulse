@@ -1,7 +1,5 @@
 import Link from "next/link";
 import type { OpenTopic, Programme } from "@/lib/types";
-import type { ActionStatus, CeoLog } from "@/lib/ceo-store";
-import { actionKey } from "@/lib/helpers";
 
 interface Item {
   programmeId: string;
@@ -10,49 +8,30 @@ interface Item {
 
 interface AttentionBandProps {
   items: Item[];
-  ceoLog: CeoLog;
   /** The active customer's programmes, for grouping + links. */
   programmes: Programme[];
   customerId: string;
 }
 
-/** Display-only status badge (the acting happens on the programme page). */
-const STATUS_META: Record<ActionStatus, { label: string; bg: string; fg: string; icon: string }> = {
-  done: { label: "Done", bg: "#E1F0E7", fg: "#2F6A4A", icon: "✓" },
-  noted: { label: "Noted", bg: "#ECEAF7", fg: "#6C6689", icon: "•" },
-  dismissed: { label: "Not now", bg: "#F8E7CC", fg: "#7A4A0E", icon: "⏸" }
-};
-
 /**
- * The discussion points waiting across the portfolio — read-only here. Each
- * point shows whether it's been handled (a Noted / Done / Not now badge that
- * mirrors what was set inside the programme). Open points sit on top; handled
- * ones drop below, dimmed. To act on one, open its programme — the status is
- * the same underlying record, so it stays in sync both ways.
+ * The open decisions leads have raised across the portfolio - read-only, and
+ * the only place they appear now (the programme page no longer repeats them).
+ * Grouped by programme, each linking through. Acting on things happens on the
+ * asks in a programme's Signals card, not here.
  */
-export function AttentionBand({ items, ceoLog, programmes, customerId }: AttentionBandProps) {
-  const statusOf = (it: Item) =>
-    ceoLog.actions[actionKey("topic", it.programmeId, it.topic.title)]?.status;
-  const openCount = items.filter((it) => !statusOf(it)).length;
-  const handledCount = items.length - openCount;
-
+export function AttentionBand({ items, programmes, customerId }: AttentionBandProps) {
   const groups = programmes
-    .map((p) => {
-      const topics = items.filter((it) => it.programmeId === p.id);
-      const open = topics.filter((it) => !statusOf(it));
-      const handled = topics.filter((it) => statusOf(it));
-      return { programme: p, topics: [...open, ...handled], openN: open.length };
-    })
+    .map((p) => ({
+      programme: p,
+      topics: items.filter((it) => it.programmeId === p.id)
+    }))
     .filter((g) => g.topics.length > 0);
 
   return (
     <section className="card px-6 py-5 h-full flex flex-col">
       <div className="flex items-baseline justify-between">
         <h3 className="font-serif text-xl text-ink-900">Key Discussion Points</h3>
-        <span className="text-[11px] text-ink-400">
-          {openCount} open
-          {handledCount > 0 && ` · ${handledCount} handled`}
-        </span>
+        <span className="text-[11px] text-ink-400">{items.length} open</span>
       </div>
 
       {groups.length === 0 ? (
@@ -70,36 +49,18 @@ export function AttentionBand({ items, ceoLog, programmes, customerId }: Attenti
                 </span>
                 <span className="h-px flex-1 bg-sand-200" />
                 <span className="text-[10px] text-ink-300 group-hover:text-coral transition">
-                  {g.openN > 0 ? `${g.openN} open →` : "all handled →"}
+                  open →
                 </span>
               </Link>
               <ul className="mt-1.5 space-y-1.5">
-                {g.topics.map((it, i) => {
-                  const status = statusOf(it);
-                  const meta = status ? STATUS_META[status] : null;
-                  return (
-                    <li key={i} className="flex items-start gap-2">
-                      <span className="w-1 h-1 mt-[7px] rounded-full shrink-0 bg-coral/60" />
-                      <p
-                        className={`flex-1 text-[13px] leading-snug ${
-                          meta ? "text-ink-400 line-through decoration-1" : "text-ink-800"
-                        }`}
-                      >
-                        {it.topic.title}
-                      </p>
-                      {meta && (
-                        <span
-                          className="mt-0.5 shrink-0 inline-flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
-                          style={{ backgroundColor: meta.bg, color: meta.fg }}
-                          title={`Marked ${meta.label} on this programme`}
-                        >
-                          <span aria-hidden>{meta.icon}</span>
-                          {meta.label}
-                        </span>
-                      )}
-                    </li>
-                  );
-                })}
+                {g.topics.map((it, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <span className="w-1 h-1 mt-[7px] rounded-full shrink-0 bg-coral/60" />
+                    <p className="flex-1 text-[13px] leading-snug text-ink-800">
+                      {it.topic.title}
+                    </p>
+                  </li>
+                ))}
               </ul>
             </div>
           ))}

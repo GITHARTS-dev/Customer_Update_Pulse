@@ -4,6 +4,9 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { BabyElephant } from "@/components/BabyElephant";
 
+// Root-level boundary (no more specific /c/[customer]/error.tsx exists), so it
+// always replaces the tree from above the customer layout that sets --accent -
+// meaning bg-coral/bg-violet never resolve here. Hardcode the brand color instead.
 export default function Error({
   error,
   reset
@@ -24,14 +27,15 @@ export default function Error({
             Something didn't load right.
           </h1>
           <p className="mt-1 text-sm text-ink-500">
-            This is usually temporary — Jira, SharePoint, or Claude taking a
+            This is usually temporary - Jira, SharePoint, or Claude taking a
             moment. Trying again fixes it most of the time.
           </p>
         </div>
         <div className="flex gap-2.5">
           <button
             onClick={reset}
-            className="px-4 py-2 rounded-full bg-coral text-cream text-sm font-medium hover:bg-coral/90 transition"
+            className="px-4 py-2 rounded-full text-cream text-sm font-medium hover:opacity-90 transition"
+            style={{ backgroundColor: "#6C47E8" }}
           >
             Try again
           </button>
@@ -39,7 +43,7 @@ export default function Error({
             href="/"
             className="px-4 py-2 rounded-full bg-sand-100 text-ink-700 text-sm font-medium hover:bg-sand-200 transition"
           >
-            Back to pulse
+            Back to launchpad
           </Link>
         </div>
       </div>

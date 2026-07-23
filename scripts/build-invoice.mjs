@@ -3,7 +3,7 @@
 // Azure Static Web App serves it as static files at /invoice/ alongside the
 // Next.js Pulse app.
 //
-// The two apps stay completely separate builds — this only copies the finished
+// The two apps stay completely separate builds - this only copies the finished
 // artifact. Run `npm run build:invoice` after changing anything under
 // invoice-dashboard/, then commit the refreshed public/invoice/. It is
 // deliberately NOT part of `npm run build`, so the CI/SWA deploy just serves the

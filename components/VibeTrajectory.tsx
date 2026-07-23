@@ -7,8 +7,7 @@ const MAX_WEEKS = 8;
 
 // A gentle brightness rank, only used to describe the week-over-week direction.
 const VIBE_RANK: Record<Vibe, number> = {
-  going_well: 3,
-  quiet_week: 2,
+  going_well: 2,
   watch_it: 1,
   stuck: 0
 };
@@ -29,7 +28,7 @@ interface VibeTrajectoryProps {
 }
 
 /**
- * A programme's mood over the last few weeks — the CEO-level way to see progress
+ * A programme's mood over the last few weeks - the CEO-level way to see progress
  * without a shifting percentage. Each week is a dot coloured by its vibe, oldest
  * on the left. No numbers, no baseline to distort.
  */
