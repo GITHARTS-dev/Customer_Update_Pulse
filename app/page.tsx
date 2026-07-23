@@ -31,13 +31,13 @@ export default function Launchpad() {
 
       {/* Corner badges - logo left, account right. Fixed so they hold their
           spot regardless of how tall the centered content below happens to be. */}
-      <div className="fixed top-4 left-4 sm:top-6 sm:left-6 z-20 flex items-center rounded-full border border-sand-200 bg-cream/90 backdrop-blur px-3.5 py-2 shadow-card">
+      <div className="fixed top-4 left-4 sm:top-6 sm:left-6 z-20 flex items-center rounded-full border border-sand-200 bg-cream/90 backdrop-blur px-4 py-2.5 shadow-card">
         <Image
           src="/logos/harts_logo.png"
           alt="HARTS Consulting"
           width={278}
           height={98}
-          className="h-6 w-auto"
+          className="h-9 w-auto sm:h-10"
           priority
         />
       </div>
@@ -67,6 +67,7 @@ export default function Launchpad() {
             accentSoft="#9B82F2"
             title="Customer Update Pulse"
             description="A sentiment-led view of HARTS' customer transformation programmes."
+            tag="Qualitative Dashboard"
             icon={<PulseIcon />}
           />
           <AppTile
@@ -75,6 +76,7 @@ export default function Launchpad() {
             accentSoft="#6BB3DE"
             title="Customer Engagement Health"
             description="The monthly customer invoice workbook, read live from SharePoint."
+            tag="Quantitative Dashboard"
             icon={<InvoiceIcon />}
           />
         </div>
@@ -96,6 +98,7 @@ function AppTile({
   accentSoft,
   title,
   description,
+  tag,
   icon
 }: {
   href: string;
@@ -104,16 +107,25 @@ function AppTile({
   accentSoft: string;
   title: string;
   description: string;
+  tag: string;
   icon: React.ReactNode;
 }) {
   const inner = (
     <>
-      <span
-        className="inline-flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-md transition-transform duration-200 group-hover:scale-105"
-        style={{ background: `linear-gradient(135deg, ${accentSoft}, ${accent})` }}
-      >
-        {icon}
-      </span>
+      <div className="flex items-center justify-between">
+        <span
+          className="inline-flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-md transition-transform duration-200 group-hover:scale-105"
+          style={{ background: `linear-gradient(135deg, ${accentSoft}, ${accent})` }}
+        >
+          {icon}
+        </span>
+        <span
+          className="inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em]"
+          style={{ color: accent, backgroundColor: `${accent}1A` }}
+        >
+          {tag}
+        </span>
+      </div>
       <h2 className="mt-5 font-serif text-xl text-ink-900">{title}</h2>
       <p className="mt-2 text-sm leading-relaxed text-ink-500">{description}</p>
       <span

@@ -7,7 +7,7 @@ import {
   ComposedChart, ReferenceLine,
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
 } from "recharts";
-import { AlertTriangle, RefreshCw } from "lucide-react";
+import { AlertTriangle, RefreshCw, Lock } from "lucide-react";
 
 const hartsLogoUrl = new URL("./logos/harts.png", import.meta.url).href;
 
@@ -1962,6 +1962,67 @@ function EngagementHealthPanel({ yearAgg, customerLabel }) {
   );
 }
 
+/* ---------- access denied ---------- */
+
+function AccessDeniedScreen({ detail, onRetry }) {
+  const [showDetail, setShowDetail] = useState(false);
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-6 font-sans text-slate-900">
+      <div className="w-full max-w-md text-center">
+        <img src={hartsLogoUrl} alt="Harts" className="h-9 w-auto object-contain mx-auto mb-8" />
+
+        <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-50 ring-1 ring-rose-100">
+          <Lock size={28} className="text-rose-500" />
+        </div>
+
+        <h1 className="text-lg font-bold text-slate-900">You don't have access to this dashboard</h1>
+        <p className="mt-2 text-sm leading-relaxed text-slate-500">
+          Your account isn't authorized to view this customer's invoice data yet. The SharePoint
+          workbook behind this dashboard hasn't been shared with you.
+        </p>
+
+        <div className="mt-6 flex items-center justify-center gap-2">
+          <button
+            onClick={onRetry}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition"
+          >
+            Try again
+          </button>
+          <a
+            href="/"
+            className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 transition"
+          >
+            ← Back to Apps
+          </a>
+          <a
+            href="/api/auth/signout"
+            className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 transition"
+          >
+            Sign out
+          </a>
+        </div>
+
+        <p className="mt-6 text-xs text-slate-400">
+          Think this is a mistake? Contact your Harts administrator to request access.
+        </p>
+
+        <button
+          onClick={() => setShowDetail((v) => !v)}
+          className="mt-4 text-[11px] font-medium text-slate-400 hover:text-slate-600 underline underline-offset-2"
+        >
+          {showDetail ? "Hide" : "Show"} technical details
+        </button>
+        {showDetail && (
+          <pre className="mt-2 max-h-32 overflow-auto rounded-lg bg-slate-100 p-3 text-left text-[10px] leading-relaxed text-slate-500 whitespace-pre-wrap break-words">
+            {detail}
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ---------- main ---------- */
 
 export default function EvoraInvoiceDashboard() {
@@ -2139,6 +2200,11 @@ export default function EvoraInvoiceDashboard() {
   }, [projectHoursSeries, projectRevenueSeries]);
 
   const fmtHours = (v) => `${Math.round(v)}h`;
+
+  const isAccessDenied = /\b403\b/.test(error) || /accessDenied/i.test(error);
+  if (!loading && isAccessDenied) {
+    return <AccessDeniedScreen detail={error} onRetry={handleRefresh} />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 px-8 py-5 font-sans text-slate-900">
