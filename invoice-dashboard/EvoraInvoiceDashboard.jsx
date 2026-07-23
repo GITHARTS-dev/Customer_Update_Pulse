@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Cell, Tooltip, ResponsiveContainer,
   CartesianGrid, Legend, AreaChart, Area,
@@ -7,7 +7,7 @@ import {
   ComposedChart, ReferenceLine,
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
 } from "recharts";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, RefreshCw, Lock } from "lucide-react";
 
 const hartsLogoUrl = new URL("./logos/harts.png", import.meta.url).href;
 
@@ -1962,12 +1962,74 @@ function EngagementHealthPanel({ yearAgg, customerLabel }) {
   );
 }
 
+/* ---------- access denied ---------- */
+
+function AccessDeniedScreen({ detail, onRetry }) {
+  const [showDetail, setShowDetail] = useState(false);
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-6 font-sans text-slate-900">
+      <div className="w-full max-w-md text-center">
+        <img src={hartsLogoUrl} alt="Harts" className="h-9 w-auto object-contain mx-auto mb-8" />
+
+        <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-50 ring-1 ring-rose-100">
+          <Lock size={28} className="text-rose-500" />
+        </div>
+
+        <h1 className="text-lg font-bold text-slate-900">You don't have access to this dashboard</h1>
+        <p className="mt-2 text-sm leading-relaxed text-slate-500">
+          Your account isn't authorized to view this customer's invoice data yet. The SharePoint
+          workbook behind this dashboard hasn't been shared with you.
+        </p>
+
+        <div className="mt-6 flex items-center justify-center gap-2">
+          <button
+            onClick={onRetry}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition"
+          >
+            Try again
+          </button>
+          <a
+            href="/"
+            className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 transition"
+          >
+            ← Back to Apps
+          </a>
+          <a
+            href="/api/auth/signout"
+            className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 transition"
+          >
+            Sign out
+          </a>
+        </div>
+
+        <p className="mt-6 text-xs text-slate-400">
+          Think this is a mistake? Contact your Harts administrator to request access.
+        </p>
+
+        <button
+          onClick={() => setShowDetail((v) => !v)}
+          className="mt-4 text-[11px] font-medium text-slate-400 hover:text-slate-600 underline underline-offset-2"
+        >
+          {showDetail ? "Hide" : "Show"} technical details
+        </button>
+        {showDetail && (
+          <pre className="mt-2 max-h-32 overflow-auto rounded-lg bg-slate-100 p-3 text-left text-[10px] leading-relaxed text-slate-500 whitespace-pre-wrap break-words">
+            {detail}
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ---------- main ---------- */
 
 export default function EvoraInvoiceDashboard() {
   const [months, setMonths] = useState([]);
   const [capsMap, setCapsMap] = useState({});
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [activeView, setActiveView] = useState("overview");
   const [selectedCustomer, setSelectedCustomer] = useState(CUSTOMERS[0].key);
@@ -1978,50 +2040,57 @@ export default function EvoraInvoiceDashboard() {
   const [rangeToKey, setRangeToKey] = useState(null);
   const [overviewProjectPage, setOverviewProjectPage] = useState(0);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        // Unified auth: reaching /invoice already required a platform sign-in.
-        // One call - the server resolves the workbook, opens a single Graph
-        // session, reads every sheet concurrently under it, and parses the
-        // result (see /api/invoice/data + lib/invoice-data.ts).
-        const res = await fetch("/api/invoice/data");
-        if (res.status === 401) {
-          window.location.href = "/sign-in?callbackUrl=%2Finvoice";
-          return;
-        }
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error || `${res.status} ${res.statusText}`);
-        }
-        const { months: loaded, capsMap: capsData } = await res.json();
-
-        if (cancelled) return;
-        setMonths(loaded);
-        setCapsMap(capsData);
-        setLoading(false);
-        if (!loaded.length) setError("No invoice data found in the workbook.");
-        if (loaded.length) {
-          const last = loaded[loaded.length - 1].key;
-          const latestYear = parseInt(loaded[loaded.length - 1].shortLabel.match(/\d{4}/)?.[0]);
-          const firstOfLatestYear = loaded.find(
-            (m) => parseInt(m.shortLabel.match(/\d{4}/)?.[0]) === latestYear
-          )?.key ?? loaded[0].key;
-          setMonthlyKey((k) => k || last);
-          setOverviewYear((y) => y ?? latestYear);
-          setRangeFromKey((k) => k || firstOfLatestYear);
-          setRangeToKey((k) => k || last);
-        }
-      } catch (e) {
-        if (cancelled) return;
-        console.error("[invoice-dashboard] load failed:", e);
-        setError(`Couldn't load invoice data: ${e?.message || e}`);
-        setLoading(false);
+  const loadRef = useRef(null);
+  loadRef.current = async (force) => {
+    try {
+      // Unified auth: reaching /invoice already required a platform sign-in.
+      // One call — the server resolves the workbook, opens a single Graph
+      // session, reads every sheet concurrently under it, and parses the
+      // result (see /api/invoice/data + lib/invoice-data.ts). `force` bypasses
+      // the server's in-memory cache for a user-triggered refresh.
+      const res = await fetch(force ? "/api/invoice/data?refresh=1" : "/api/invoice/data");
+      if (res.status === 401) {
+        window.location.href = "/sign-in?callbackUrl=%2Finvoice";
+        return;
       }
-    })();
-    return () => { cancelled = true; };
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `${res.status} ${res.statusText}`);
+      }
+      const { months: loaded, capsMap: capsData } = await res.json();
+
+      setMonths(loaded);
+      setCapsMap(capsData);
+      setError(loaded.length ? "" : "No invoice data found in the workbook.");
+      if (loaded.length) {
+        const last = loaded[loaded.length - 1].key;
+        const latestYear = parseInt(loaded[loaded.length - 1].shortLabel.match(/\d{4}/)?.[0]);
+        const firstOfLatestYear = loaded.find(
+          (m) => parseInt(m.shortLabel.match(/\d{4}/)?.[0]) === latestYear
+        )?.key ?? loaded[0].key;
+        setMonthlyKey((k) => k || last);
+        setOverviewYear((y) => y ?? latestYear);
+        setRangeFromKey((k) => k || firstOfLatestYear);
+        setRangeToKey((k) => k || last);
+      }
+    } catch (e) {
+      console.error("[invoice-dashboard] load failed:", e);
+      setError(`Couldn't load invoice data: ${e?.message || e}`);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadRef.current(false);
   }, []);
+
+  const handleRefresh = () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    loadRef.current(true);
+  };
 
   const overviewMonths = useMemo(() => {
     if (!months.length) return months;
@@ -2132,6 +2201,11 @@ export default function EvoraInvoiceDashboard() {
 
   const fmtHours = (v) => `${Math.round(v)}h`;
 
+  const isAccessDenied = /\b403\b/.test(error) || /accessDenied/i.test(error);
+  if (!loading && isAccessDenied) {
+    return <AccessDeniedScreen detail={error} onRetry={handleRefresh} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 px-8 py-5 font-sans text-slate-900">
       <div className="mx-auto w-full max-w-[1600px]">
@@ -2199,6 +2273,15 @@ export default function EvoraInvoiceDashboard() {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              title="Reload the latest data from the workbook, bypassing the cache"
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} />
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </button>
             <a
               href="/"
               className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 transition"
@@ -2226,9 +2309,9 @@ export default function EvoraInvoiceDashboard() {
 
         {/* tab bar + per-view controls */}
         {months.length > 0 && (
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
+          <div className="mt-4 flex flex-wrap items-center gap-4">
             <ViewTabs active={activeView} onChange={setActiveView} />
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3 rounded-xl bg-slate-100/60 pl-3 pr-2 py-1">
               {activeView === "overview" && (
                 <YearPicker
                   years={years}
