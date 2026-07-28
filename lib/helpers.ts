@@ -137,6 +137,60 @@ function thursdayOf(date: Date): Date {
   return d;
 }
 
+// ── Week identity ────────────────────────────────────────────
+// A checkpoint is addressed by its ISO week, e.g. "2026-W28". These turn that
+// pair into something a person can read ("6 - 12 Jul 2026") and back again.
+
+/** The Monday (UTC) that opens the given ISO week. */
+export function isoWeekStart(year: number, week: number): Date {
+  // 4 Jan is always in ISO week 1, so week 1's Monday is found from it.
+  const jan4 = new Date(Date.UTC(year, 0, 4));
+  const isoDay = jan4.getUTCDay() || 7;
+  const firstMonday = new Date(jan4);
+  firstMonday.setUTCDate(jan4.getUTCDate() - (isoDay - 1));
+  const start = new Date(firstMonday);
+  start.setUTCDate(firstMonday.getUTCDate() + (week - 1) * 7);
+  return start;
+}
+
+/** `2026-W28` - the canonical, sortable, URL-safe form of a week. */
+export function weekKey(year: number, week: number): string {
+  return `${year}-W${String(week).padStart(2, "0")}`;
+}
+
+/** Parses `2026-W28`. Returns null for anything malformed or out of range. */
+export function parseWeekKey(raw: string | undefined | null): { year: number; week: number } | null {
+  if (!raw) return null;
+  const m = /^(\d{4})-W(\d{1,2})$/.exec(raw.trim());
+  if (!m) return null;
+  const year = Number(m[1]);
+  const week = Number(m[2]);
+  if (year < 2000 || year > 2999 || week < 1 || week > 53) return null;
+  return { year, week };
+}
+
+/**
+ * "6 - 12 Jul 2026", collapsing the parts the two ends share: same month shows
+ * the month once, a month boundary shows both, a year boundary shows both years.
+ */
+export function weekRangeLabel(year: number, week: number): string {
+  const start = isoWeekStart(year, week);
+  const end = new Date(start);
+  end.setUTCDate(start.getUTCDate() + 6);
+
+  const day = (d: Date) => d.getUTCDate();
+  const mon = (d: Date) => d.toLocaleDateString("en-GB", { month: "short", timeZone: "UTC" });
+  const yr = (d: Date) => d.getUTCFullYear();
+
+  if (yr(start) !== yr(end)) {
+    return `${day(start)} ${mon(start)} ${yr(start)} - ${day(end)} ${mon(end)} ${yr(end)}`;
+  }
+  if (mon(start) !== mon(end)) {
+    return `${day(start)} ${mon(start)} - ${day(end)} ${mon(end)} ${yr(end)}`;
+  }
+  return `${day(start)} - ${day(end)} ${mon(end)} ${yr(end)}`;
+}
+
 export function shortDate(date: Date = new Date()): string {
   return date.toLocaleDateString(undefined, {
     day: "numeric",

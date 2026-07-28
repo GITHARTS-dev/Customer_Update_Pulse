@@ -31,11 +31,14 @@ export function InputShortcutProvider({ children }: { children: React.ReactNode 
   const customer = match ? getCustomer(decodeURIComponent(match[1])) : undefined;
   const enabled = Boolean(customer && !customer.comingSoon && customer.programmes.length > 0);
 
-  const { editMode, enterEditMode } = useEditMode();
+  const { editMode, enterEditMode, available: editAvailable } = useEditMode();
 
   // Editing only makes sense on the pages that actually render published
-  // cards: the pulse page and a programme page.
-  const canEdit = /^\/c\/[^/]+(\/programme\/[^/]+)?\/?$/.test(pathname);
+  // cards: the pulse page and a programme page. `editAvailable` also goes false
+  // while a past checkpoint is on screen, so the option is offered as disabled
+  // rather than letting someone try to rewrite history.
+  const canEdit =
+    editAvailable && /^\/c\/[^/]+(\/programme\/[^/]+)?\/?$/.test(pathname);
 
   // Leaving a live customer's pages closes anything open.
   useEffect(() => {

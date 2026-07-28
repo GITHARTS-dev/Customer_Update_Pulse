@@ -17,6 +17,8 @@ interface MoodHeroProps {
    */
   computedHeadline: string;
   computedSupporting: string;
+  /** Overrides "This week's pulse" - set to the week when viewing a checkpoint. */
+  eyebrow?: string;
 }
 
 export function MoodHero({
@@ -24,7 +26,8 @@ export function MoodHero({
   supporting,
   vibe,
   computedHeadline,
-  computedSupporting
+  computedSupporting,
+  eyebrow
 }: MoodHeroProps) {
   const { editMode, portfolioDraft, setPortfolioField } = useEditMode();
 
@@ -41,7 +44,7 @@ export function MoodHero({
       </div>
       <div className="relative min-w-0 w-full">
         <p className="text-[10px] tracking-[0.18em] uppercase text-cream/50 mb-1.5 flex items-center justify-center sm:justify-start gap-2">
-          This week's pulse
+          {eyebrow ?? "This week's pulse"}
           {editMode && <EditBadge tone="dark" />}
         </p>
 

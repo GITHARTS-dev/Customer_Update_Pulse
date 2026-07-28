@@ -2,7 +2,8 @@ import "server-only";
 import type { PulseSubmission, Vibe } from "./types";
 import type { Customer } from "./customers";
 import { readAllSubmissionRows } from "./store";
-import { isoWeek, isoWeekYear, safeVibe } from "./helpers";
+import { weekOfSubmission } from "./snapshot-store";
+import { safeVibe } from "./helpers";
 
 /**
  * A single week's mood for one programme. We deliberately keep only the vibe
@@ -20,16 +21,15 @@ export interface WeekSnapshot {
 }
 
 function snapshotFrom(sub: PulseSubmission): WeekSnapshot {
-  const d = new Date(sub.submittedAt);
-  const valid = !isNaN(d.getTime());
-  const when = valid ? d : new Date();
+  // Shared with the checkpoint store so a trend dot and the week it opens are
+  // always the same week. (ISO week-YEAR, not the calendar year: around New
+  // Year the two disagree, and pairing an ISO week with a calendar year would
+  // put one real week under two keys - two dots for one week.)
+  const { year, week } = weekOfSubmission(sub);
   return {
     programmeId: sub.programmeId,
-    // ISO week-year, not the calendar year: around New Year the two disagree,
-    // and pairing an ISO week number with a calendar year would put one real
-    // week under two different keys (two dots for one week).
-    year: isoWeekYear(when),
-    weekNumber: sub.weekNumber || isoWeek(when),
+    year,
+    weekNumber: week,
     submittedAt: sub.submittedAt,
     vibe: safeVibe(sub.vibe)
   };

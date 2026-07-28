@@ -48,6 +48,12 @@ interface EditModeValue {
   exitEditMode: () => void;
   /** True on pages where editing is possible at all (a live customer). */
   available: boolean;
+  /**
+   * Called by a page that is showing a historical checkpoint, to take editing
+   * off the table while it is mounted. A past week is a record of what was
+   * said; letting it be rewritten would make the history worthless.
+   */
+  setEditingBlocked: (blocked: boolean) => void;
 
   programmeDraft: (programmeId: string) => ProgrammeDraft;
   setProgrammeField: <K extends ProgrammeField>(
@@ -132,6 +138,7 @@ export function useEditMode(): EditModeValue {
       enterEditMode: () => {},
       exitEditMode: () => {},
       available: false,
+      setEditingBlocked: () => {},
       programmeDraft: () => NOOP_DRAFT,
       setProgrammeField: () => {},
       portfolioDraft: {},
@@ -149,7 +156,7 @@ export function EditModeProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "";
   const match = pathname.match(/^\/c\/([^/]+)/);
   const customer = match ? getCustomer(decodeURIComponent(match[1])) : undefined;
-  const available = Boolean(
+  const availableForCustomer = Boolean(
     customer && !customer.comingSoon && customer.programmes.length > 0
   );
 
@@ -159,6 +166,11 @@ export function EditModeProvider({ children }: { children: React.ReactNode }) {
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [justPublished, setJustPublished] = useState(false);
+  // Set by whichever page is showing a past checkpoint. Read via a ref-like
+  // state so `available` collapses and any open session closes immediately.
+  const [editingBlocked, setEditingBlocked] = useState(false);
+
+  const available = availableForCustomer && !editingBlocked;
 
   const dirtyCount = useMemo(() => {
     let n = 0;
@@ -354,6 +366,7 @@ export function EditModeProvider({ children }: { children: React.ReactNode }) {
       enterEditMode,
       exitEditMode,
       available,
+      setEditingBlocked,
       programmeDraft,
       setProgrammeField,
       portfolioDraft: portfolio,
@@ -392,6 +405,21 @@ export function EditModeProvider({ children }: { children: React.ReactNode }) {
       {justPublished && <PublishedToast />}
     </EditModeContext.Provider>
   );
+}
+
+/**
+ * Mounted by a page that is showing a historical checkpoint. Renders nothing;
+ * it exists so a server page can switch editing off without the provider
+ * needing to read search params (which, from the root layout, would force every
+ * page - including the static launchpad - out of static rendering).
+ */
+export function EditingBlockedWhileMounted() {
+  const { setEditingBlocked } = useEditMode();
+  useEffect(() => {
+    setEditingBlocked(true);
+    return () => setEditingBlocked(false);
+  }, [setEditingBlocked]);
+  return null;
 }
 
 /* ---------- the persistent bar ---------- */

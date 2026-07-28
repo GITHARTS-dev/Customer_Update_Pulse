@@ -15,18 +15,36 @@ import {
   greeting,
   isoWeek,
   isoWeekYear,
-  safeVibe
+  parseWeekKey,
+  safeVibe,
+  weekKey,
+  weekRangeLabel,
+  type Freshness
 } from "@/lib/helpers";
 import { readAllSubmissions } from "@/lib/store";
 import { readCeoLog } from "@/lib/ceo-store";
 import { readPortfolioOverride } from "@/lib/portfolio-store";
+import { readAvailableWeeks, readSubmissionsForWeek } from "@/lib/snapshot-store";
 import { resolveProgrammes } from "@/lib/programme-store";
-import type { OpenTopic, Vibe } from "@/lib/types";
+import { CheckpointPicker } from "@/components/CheckpointPicker";
+import { PastWeekBanner } from "@/components/PastWeekBanner";
+import { EditingBlockedWhileMounted } from "@/components/EditModeProvider";
+import type { OpenTopic, PulseSubmission, Vibe } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 interface PageProps {
   params: Promise<{ customer: string }>;
+  /** `?week=2026-W28` renders that week's checkpoint instead of the live view. */
+  searchParams: Promise<{ week?: string }>;
+}
+
+/** The week a page is showing: null while live, otherwise the checkpoint. */
+interface ViewWeek {
+  year: number;
+  week: number;
+  key: string;
+  range: string;
 }
 
 interface AttentionItem {
@@ -38,16 +56,29 @@ interface AttentionItem {
 
 /**
  * One derivation of everything a customer's dashboard shows, cached per request
- * (keyed by the customer) so the KPI tiles, hero+board, and attention rail -
- * three independent Suspense children - share ONE SharePoint read.
+ * (keyed by the customer AND the week being viewed) so the KPI tiles, hero+board
+ * and attention rail - three independent Suspense children - share ONE
+ * SharePoint read.
+ *
+ * `viewWeek` is null for the live dashboard and a checkpoint otherwise. In
+ * checkpoint mode the submissions come from that one week and every row in it
+ * counts as fresh: it WAS current then, so grading it against today's clock
+ * would paint an entire past week as stale.
  */
-const loadDashboard = cache(async (customer: Customer) => {
+const loadDashboard = cache(async (customer: Customer, viewWeek: ViewWeek | null) => {
   const [submissionsByProgramme, ceoLog, programmes, portfolio] = await Promise.all([
-    readAllSubmissions(customer),
+    viewWeek
+      ? readSubmissionsForWeek(customer, viewWeek.year, viewWeek.week)
+      : readAllSubmissions(customer),
     readCeoLog(customer),
     resolveProgrammes(customer),
     readPortfolioOverride(customer)
   ]);
+
+  const historical = viewWeek !== null;
+  /** In a checkpoint, "was there a row that week" replaces the 7-day clock. */
+  const freshnessFor = (s: PulseSubmission | undefined): Freshness =>
+    historical ? (s ? "fresh" : "missing") : freshnessOf(s?.submittedAt);
 
   const total = programmes.length;
   const vibeCounts: Record<Vibe, number> = {
@@ -61,7 +92,7 @@ const loadDashboard = cache(async (customer: Customer) => {
 
   for (const p of programmes) {
     const s = submissionsByProgramme[p.id];
-    const f = freshnessOf(s?.submittedAt);
+    const f = freshnessFor(s);
     if (f === "fresh" && s) {
       freshCount += 1;
       vibeCounts[safeVibe(s.vibe)] += 1;
@@ -100,22 +131,27 @@ const loadDashboard = cache(async (customer: Customer) => {
   // lead's override if they've published one. The computed pair is kept
   // alongside so clearing an override falls back to it instead of a blank hero.
   const computedHeadline = emotionalOneLiner(vibeCounts, freshCount);
+  const wording = historical ? "that week" : "this week";
   const computedSupporting =
     stale + missing === 0
-      ? `All ${total} programmes checked in this week.`
-      : `${freshCount} of ${total} programmes checked in this week. ${stale} stale, ${missing} not yet in.`;
+      ? `All ${total} programmes checked in ${wording}.`
+      : historical
+        ? `${freshCount} of ${total} programmes checked in that week.`
+        : `${freshCount} of ${total} programmes checked in this week. ${stale} stale, ${missing} not yet in.`;
 
   // An override only stands for the week it was written. It sits under "This
   // week's pulse" and `supporting` is a count sentence, so a stale override
   // would state a flatly false number next to a KPI tile contradicting it.
+  // A checkpoint never takes it: only the current week's override was ever
+  // written about the numbers now on screen.
   const now = new Date();
   const overrideAt = portfolio.edited?.at ? new Date(portfolio.edited.at) : null;
   const overrideWeek =
     overrideAt && !isNaN(overrideAt.getTime())
-      ? `${isoWeekYear(overrideAt)}-${isoWeek(overrideAt)}`
+      ? weekKey(isoWeekYear(overrideAt), isoWeek(overrideAt))
       : null;
-  const thisWeekKey = `${isoWeekYear(now)}-${isoWeek(now)}`;
-  const overrideLive = overrideWeek === thisWeekKey;
+  const thisWeekKey = weekKey(isoWeekYear(now), isoWeek(now));
+  const overrideLive = !historical && overrideWeek === thisWeekKey;
   const headline = (overrideLive ? portfolio.headline : undefined) ?? computedHeadline;
   const supporting = (overrideLive ? portfolio.supporting : undefined) ?? computedSupporting;
 
@@ -131,7 +167,7 @@ const loadDashboard = cache(async (customer: Customer) => {
   const attentionItems: AttentionItem[] = programmes.flatMap((p) => {
     const s = submissionsByProgramme[p.id];
     if (!s) return [];
-    const f = freshnessOf(s.submittedAt);
+    const f = freshnessFor(s);
     if (f === "missing") return [];
     return s.openTopics.map((t) => ({
       programmeId: p.id,
@@ -145,9 +181,13 @@ const loadDashboard = cache(async (customer: Customer) => {
 
   const stats = [
     {
-      label: "Updated this week",
+      label: historical ? "Checked in" : "Updated this week",
       value: `${freshCount}/${total}`,
-      hint: stale + missing === 0 ? "everyone in" : `${stale} stale · ${missing} missing`,
+      hint: historical
+        ? `${missing} did not`
+        : stale + missing === 0
+          ? "everyone in"
+          : `${stale} stale · ${missing} missing`,
       tone:
         freshCount === total
           ? ("warm" as const)
@@ -189,13 +229,16 @@ const loadDashboard = cache(async (customer: Customer) => {
   const boardEntries: BoardEntry[] = programmes.map((p) => {
     const s = submissionsByProgramme[p.id];
     const viewedAt = ceoLog.views[p.id];
-    const f = freshnessOf(s?.submittedAt);
+    const f = freshnessFor(s);
     return {
       programme: p,
       submission: s,
       freshness: f,
+      // "New since you last looked" is a statement about now, so it is never
+      // claimed inside a checkpoint.
       unseen: Boolean(
-        s &&
+        !historical &&
+          s &&
           f === "fresh" &&
           (!viewedAt || new Date(viewedAt) < new Date(s.submittedAt))
       )
@@ -214,10 +257,11 @@ const loadDashboard = cache(async (customer: Customer) => {
     // Any programme with a check-in on record. Safe now that `attentionItems`
     // carries stale points too: what the band shows for a programme is its full
     // stored set, so an edit starts from the right baseline and cannot wipe
-    // points that were merely off-screen.
-    editableProgrammeIds: programmes
-      .filter((p) => submissionsByProgramme[p.id])
-      .map((p) => p.id),
+    // points that were merely off-screen. Empty in a checkpoint, which is
+    // read-only.
+    editableProgrammeIds: historical
+      ? []
+      : programmes.filter((p) => submissionsByProgramme[p.id]).map((p) => p.id),
     ceoLog,
     programmes,
     freshCount,
@@ -225,7 +269,7 @@ const loadDashboard = cache(async (customer: Customer) => {
   };
 });
 
-export default async function PulsePage({ params }: PageProps) {
+export default async function PulsePage({ params, searchParams }: PageProps) {
   const { customer: cid } = await params;
   const customer = getCustomer(cid);
   if (!customer) notFound();
@@ -233,6 +277,21 @@ export default async function PulsePage({ params }: PageProps) {
   if (customer.comingSoon) {
     return <ComingSoon customer={customer} />;
   }
+
+  const { week: weekParam } = await searchParams;
+  const now = new Date();
+  const currentKey = weekKey(isoWeekYear(now), isoWeek(now));
+  const parsed = parseWeekKey(weekParam);
+  // Only treat it as a checkpoint if it parses AND isn't just the current week
+  // spelled out - `?week=<this week>` should behave exactly like no param.
+  const viewWeek: ViewWeek | null =
+    parsed && weekKey(parsed.year, parsed.week) !== currentKey
+      ? {
+          ...parsed,
+          key: weekKey(parsed.year, parsed.week),
+          range: weekRangeLabel(parsed.year, parsed.week)
+        }
+      : null;
 
   const who = customer.shortName ?? customer.name;
 
@@ -242,10 +301,20 @@ export default async function PulsePage({ params }: PageProps) {
         <SidebarData customer={customer} />
       </Suspense>
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-4 sm:py-6 flex flex-col gap-4 min-w-0">
+        {/* A checkpoint is a record, never a draft - editing is switched off
+            for as long as one is on screen. */}
+        {viewWeek && <EditingBlockedWhileMounted />}
+
+        {viewWeek && (
+          <Suspense fallback={null}>
+            <PastWeekSection customer={customer} viewWeek={viewWeek} />
+          </Suspense>
+        )}
+
         <header className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 lg:gap-6">
           <div>
             <h1 className="font-serif text-2xl sm:text-3xl text-ink-900 leading-tight">
-              {greeting()}, Sreema.
+              {viewWeek ? `Week ${viewWeek.week}, looking back.` : `${greeting()}, Sreema.`}
             </h1>
             <svg className="mt-1.5 h-2 w-36" viewBox="0 0 140 8" fill="none" aria-hidden="true">
               <path
@@ -273,25 +342,42 @@ export default async function PulsePage({ params }: PageProps) {
               </defs>
             </svg>
             <p className="mt-1 text-sm text-ink-500">
-              Here's how {who}'s programmes are feeling this week.
+              {viewWeek
+                ? `How ${who}'s programmes felt that week, exactly as it was captured.`
+                : `Here's how ${who}'s programmes are feeling this week.`}
             </p>
           </div>
-          <div className="w-full lg:w-[480px] lg:shrink-0">
-            <Suspense fallback={<KpiSkeleton />}>
-              <KpiSection customer={customer} />
-            </Suspense>
+          <div className="w-full lg:w-[480px] lg:shrink-0 flex flex-col items-end gap-2">
+            {/* The way into earlier weeks. One quiet control until asked for,
+                so the live dashboard stays about this week. The row keeps its
+                height whether or not the control resolves, so the KPI tiles
+                below never jump when it streams in. */}
+            <div className="h-[30px] flex items-center">
+              <Suspense fallback={null}>
+                <CheckpointSection
+                  customer={customer}
+                  activeKey={viewWeek?.key ?? null}
+                  currentKey={currentKey}
+                />
+              </Suspense>
+            </div>
+            <div className="w-full">
+              <Suspense fallback={<KpiSkeleton />}>
+                <KpiSection customer={customer} viewWeek={viewWeek} />
+              </Suspense>
+            </div>
           </div>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
           <div className="lg:col-span-3 flex flex-col gap-4">
             <Suspense fallback={<HeroBoardSkeleton />}>
-              <HeroAndBoard customer={customer} />
+              <HeroAndBoard customer={customer} viewWeek={viewWeek} />
             </Suspense>
           </div>
           <div className="lg:col-span-2 flex flex-col gap-4">
             <Suspense fallback={<AttentionSkeleton />}>
-              <AttentionSection customer={customer} />
+              <AttentionSection customer={customer} viewWeek={viewWeek} />
             </Suspense>
           </div>
         </div>
@@ -300,13 +386,61 @@ export default async function PulsePage({ params }: PageProps) {
   );
 }
 
-async function KpiSection({ customer }: { customer: Customer }) {
-  const { stats } = await loadDashboard(customer);
+/** The checkpoint control. Its own boundary so the header paints without it. */
+async function CheckpointSection({
+  customer,
+  activeKey,
+  currentKey
+}: {
+  customer: Customer;
+  activeKey: string | null;
+  currentKey: string;
+}) {
+  const weeks = await readAvailableWeeks(customer);
+  // Nothing to look back on yet - don't offer a control that opens an empty list.
+  if (weeks.filter((w) => w.key !== currentKey).length === 0 && !activeKey) return null;
+  return <CheckpointPicker weeks={weeks} activeKey={activeKey} currentKey={currentKey} />;
+}
+
+/** The "you're viewing the past" banner, with that week's real counts. */
+async function PastWeekSection({
+  customer,
+  viewWeek
+}: {
+  customer: Customer;
+  viewWeek: ViewWeek;
+}) {
+  const { freshCount, total } = await loadDashboard(customer, viewWeek);
+  return (
+    <PastWeekBanner
+      week={viewWeek.week}
+      range={viewWeek.range}
+      backHref={`/c/${customer.id}`}
+      checkedIn={freshCount}
+      total={total}
+    />
+  );
+}
+
+async function KpiSection({
+  customer,
+  viewWeek
+}: {
+  customer: Customer;
+  viewWeek: ViewWeek | null;
+}) {
+  const { stats } = await loadDashboard(customer, viewWeek);
   return <KpiStats stats={stats} />;
 }
 
 
-async function HeroAndBoard({ customer }: { customer: Customer }) {
+async function HeroAndBoard({
+  customer,
+  viewWeek
+}: {
+  customer: Customer;
+  viewWeek: ViewWeek | null;
+}) {
   const {
     headline,
     supporting,
@@ -316,7 +450,7 @@ async function HeroAndBoard({ customer }: { customer: Customer }) {
     boardEntries,
     freshCount,
     total
-  } = await loadDashboard(customer);
+  } = await loadDashboard(customer, viewWeek);
   return (
     <>
       <MoodHero
@@ -325,29 +459,47 @@ async function HeroAndBoard({ customer }: { customer: Customer }) {
         computedHeadline={computedHeadline}
         computedSupporting={computedSupporting}
         vibe={overall}
+        eyebrow={viewWeek ? `Week ${viewWeek.week} · ${viewWeek.range}` : undefined}
       />
       <section className="flex flex-col">
         <div className="flex flex-wrap items-baseline justify-between gap-y-1 mb-2.5">
-          <h2 className="font-serif text-xl text-ink-900">Weekly Programme Health</h2>
+          <h2 className="font-serif text-xl text-ink-900">
+            {viewWeek ? `Programme Health · Week ${viewWeek.week}` : "Weekly Programme Health"}
+          </h2>
           <span className="text-[10px] text-ink-400">
             {freshCount} checked in
-            {total - freshCount > 0 && ` · ${total - freshCount} awaiting`}
+            {total - freshCount > 0 &&
+              ` · ${total - freshCount} ${viewWeek ? "did not" : "awaiting"}`}
           </span>
         </div>
-        <VibeBoard entries={boardEntries} customerId={customer.id} />
+        <VibeBoard
+          entries={boardEntries}
+          customerId={customer.id}
+          weekParam={viewWeek?.key}
+        />
       </section>
     </>
   );
 }
 
-async function AttentionSection({ customer }: { customer: Customer }) {
-  const { attentionItems, programmes, editableProgrammeIds } = await loadDashboard(customer);
+async function AttentionSection({
+  customer,
+  viewWeek
+}: {
+  customer: Customer;
+  viewWeek: ViewWeek | null;
+}) {
+  const { attentionItems, programmes, editableProgrammeIds } = await loadDashboard(
+    customer,
+    viewWeek
+  );
   return (
     <AttentionBand
       items={attentionItems}
       programmes={programmes}
       customerId={customer.id}
       editableProgrammeIds={editableProgrammeIds}
+      weekParam={viewWeek?.key}
     />
   );
 }

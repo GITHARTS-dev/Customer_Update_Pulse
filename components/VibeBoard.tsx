@@ -42,41 +42,55 @@ const VIBE_WHISPER: Record<Vibe, string> = {
   stuck: "needs your warmth"
 };
 
-const VIBE_EMPTY: Record<Vibe, string> = {
-  going_well: "no one yet, the week is young",
-  watch_it: "nothing to keep an eye on",
-  stuck: "nobody carrying anything heavy"
-};
-
 /** Calm relief colour for the one empty state that should read as good news. */
 const RELIEF_TINT = { bg: "#3BA46A0D", border: "#3BA46A24" };
 
 export function VibeBoard({
   entries,
-  customerId
+  customerId,
+  weekParam
 }: {
   entries: BoardEntry[];
   customerId: string;
+  /** `2026-W28` while viewing a checkpoint - carried into every programme link
+   *  so clicking through stays in the same week instead of jumping to today. */
+  weekParam?: string;
 }) {
   const { groups, awaiting } = computeBoard(entries);
 
   return (
     <div className="flex flex-col gap-3.5">
       {groups.map(({ vibe, entries: group }) => (
-        <MoodShelf key={vibe} vibe={vibe} entries={group} customerId={customerId} />
+        <MoodShelf
+          key={vibe}
+          vibe={vibe}
+          entries={group}
+          customerId={customerId}
+          weekParam={weekParam}
+        />
       ))}
-      {awaiting.length > 0 && <AwaitingRow entries={awaiting} customerId={customerId} />}
+      {awaiting.length > 0 && (
+        <AwaitingRow entries={awaiting} customerId={customerId} weekParam={weekParam} />
+      )}
     </div>
   );
+}
+
+/** A programme link that stays inside the week currently being viewed. */
+function programmeHref(customerId: string, programmeId: string, weekParam?: string): string {
+  const base = `/c/${customerId}/programme/${programmeId}`;
+  return weekParam ? `${base}?week=${weekParam}` : base;
 }
 
 /** The dashed "awaiting check-in" row - its own card so the masonry can flow it. */
 export function AwaitingRow({
   entries,
-  customerId
+  customerId,
+  weekParam
 }: {
   entries: BoardEntry[];
   customerId: string;
+  weekParam?: string;
 }) {
   if (entries.length === 0) return null;
   return (
@@ -87,7 +101,7 @@ export function AwaitingRow({
       {entries.map(({ programme, freshness }) => (
         <Link
           key={programme.id}
-          href={`/c/${customerId}/programme/${programme.id}`}
+          href={programmeHref(customerId, programme.id, weekParam)}
           className="inline-flex items-center gap-1.5 rounded-full bg-sand-100 hover:bg-sand-200 border border-sand-200 px-2.5 py-1 text-[11px] text-ink-500 transition"
         >
           <span
@@ -108,16 +122,16 @@ export function AwaitingRow({
 export function MoodShelf({
   vibe,
   entries,
-  customerId
+  customerId,
+  weekParam
 }: {
   vibe: Vibe;
   entries: BoardEntry[];
   customerId: string;
+  weekParam?: string;
 }) {
   const isRelief = vibe === "stuck" && entries.length === 0;
   const tint = isRelief ? RELIEF_TINT : VIBE_TINT[vibe];
-  const whisper = entries.length === 0 && !isRelief ? VIBE_EMPTY[vibe] : VIBE_WHISPER[vibe];
-  const reliefCopy = "nobody carrying anything heavy, what a relief";
 
   return (
     <section
@@ -143,9 +157,10 @@ export function MoodShelf({
               {entries.length}
             </span>
           </div>
-          <p className="text-[11px] text-ink-400 mt-0.5 leading-snug">
-            {isRelief ? reliefCopy : whisper}
-          </p>
+          {/* No subtitle for an empty shelf - the count already says it. */}
+          {entries.length > 0 && (
+            <p className="text-[11px] text-ink-400 mt-0.5 leading-snug">{VIBE_WHISPER[vibe]}</p>
+          )}
         </div>
       </div>
 
@@ -164,7 +179,7 @@ export function MoodShelf({
             return (
               <li key={programme.id} className="w-[172px] shrink-0">
                 <Link
-                  href={`/c/${customerId}/programme/${programme.id}`}
+                  href={programmeHref(customerId, programme.id, weekParam)}
                   className="block rounded-xl bg-cream border border-sand-200 px-3.5 py-3 shadow-card hover:shadow-hero hover:-translate-y-0.5 transition-all relative"
                   style={{ borderLeft: `3px solid ${VIBE_COLOR[vibe]}` }}
                 >

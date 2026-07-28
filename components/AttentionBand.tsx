@@ -23,6 +23,9 @@ interface AttentionBandProps {
    * mode - adding a point there would fail on publish.
    */
   editableProgrammeIds: string[];
+  /** `2026-W28` while viewing a checkpoint - kept on the programme links so
+   *  clicking through stays in that week rather than jumping to today. */
+  weekParam?: string;
 }
 
 /**
@@ -41,7 +44,8 @@ export function AttentionBand({
   items,
   programmes,
   customerId,
-  editableProgrammeIds
+  editableProgrammeIds,
+  weekParam
 }: AttentionBandProps) {
   const { editMode, programmeDraft, setProgrammeField } = useEditMode();
   const editable = new Set(editableProgrammeIds);
@@ -89,7 +93,11 @@ export function AttentionBand({
           {groups.map((g) => (
             <div key={g.programme.id}>
               <Link
-                href={`/c/${customerId}/programme/${g.programme.id}`}
+                href={
+                  weekParam
+                    ? `/c/${customerId}/programme/${g.programme.id}?week=${weekParam}`
+                    : `/c/${customerId}/programme/${g.programme.id}`
+                }
                 className="group flex items-center gap-2"
               >
                 <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-coral">
