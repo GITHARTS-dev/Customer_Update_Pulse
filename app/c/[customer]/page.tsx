@@ -9,9 +9,17 @@ import { VibeBoard, type BoardEntry } from "@/components/VibeBoard";
 import { AttentionBand } from "@/components/AttentionBand";
 import { KpiSkeleton, HeroBoardSkeleton, AttentionSkeleton } from "@/components/Skeletons";
 import { getCustomer, type Customer } from "@/lib/customers";
-import { emotionalOneLiner, freshnessOf, greeting, safeVibe } from "@/lib/helpers";
+import {
+  emotionalOneLiner,
+  freshnessOf,
+  greeting,
+  isoWeek,
+  isoWeekYear,
+  safeVibe
+} from "@/lib/helpers";
 import { readAllSubmissions } from "@/lib/store";
 import { readCeoLog } from "@/lib/ceo-store";
+import { readPortfolioOverride } from "@/lib/portfolio-store";
 import { resolveProgrammes } from "@/lib/programme-store";
 import type { OpenTopic, Vibe } from "@/lib/types";
 
@@ -24,6 +32,8 @@ interface PageProps {
 interface AttentionItem {
   programmeId: string;
   topic: OpenTopic;
+  /** From a check-in older than a week - still open, just not raised again. */
+  stale: boolean;
 }
 
 /**
@@ -32,10 +42,11 @@ interface AttentionItem {
  * three independent Suspense children - share ONE SharePoint read.
  */
 const loadDashboard = cache(async (customer: Customer) => {
-  const [submissionsByProgramme, ceoLog, programmes] = await Promise.all([
+  const [submissionsByProgramme, ceoLog, programmes, portfolio] = await Promise.all([
     readAllSubmissions(customer),
     readCeoLog(customer),
-    resolveProgrammes(customer)
+    resolveProgrammes(customer),
+    readPortfolioOverride(customer)
   ]);
 
   const total = programmes.length;
@@ -73,26 +84,64 @@ const loadDashboard = cache(async (customer: Customer) => {
   const portfolioStuck = stuckCount;
   const notYetIn = stale + missing;
 
+  // With nothing fresh in, there is no mood to report. Falling through to
+  // "going_well" put the beaming elephant next to "the week is still settling
+  // in", so an empty week reads as the neutral middle instead.
   const overall: Vibe =
-    stuckCount > 0
-      ? "stuck"
-      : watching > 0
-        ? "watch_it"
-        : "going_well";
+    freshCount === 0
+      ? "watch_it"
+      : stuckCount > 0
+        ? "stuck"
+        : watching > 0
+          ? "watch_it"
+          : "going_well";
 
-  const headline = emotionalOneLiner(vibeCounts, freshCount);
-  const supporting =
+  // Both lines are computed from the week's vibe counts, then handed to the
+  // lead's override if they've published one. The computed pair is kept
+  // alongside so clearing an override falls back to it instead of a blank hero.
+  const computedHeadline = emotionalOneLiner(vibeCounts, freshCount);
+  const computedSupporting =
     stale + missing === 0
       ? `All ${total} programmes checked in this week.`
       : `${freshCount} of ${total} programmes checked in this week. ${stale} stale, ${missing} not yet in.`;
 
+  // An override only stands for the week it was written. It sits under "This
+  // week's pulse" and `supporting` is a count sentence, so a stale override
+  // would state a flatly false number next to a KPI tile contradicting it.
+  const now = new Date();
+  const overrideAt = portfolio.edited?.at ? new Date(portfolio.edited.at) : null;
+  const overrideWeek =
+    overrideAt && !isNaN(overrideAt.getTime())
+      ? `${isoWeekYear(overrideAt)}-${isoWeek(overrideAt)}`
+      : null;
+  const thisWeekKey = `${isoWeekYear(now)}-${isoWeek(now)}`;
+  const overrideLive = overrideWeek === thisWeekKey;
+  const headline = (overrideLive ? portfolio.headline : undefined) ?? computedHeadline;
+  const supporting = (overrideLive ? portfolio.supporting : undefined) ?? computedSupporting;
+
+  /**
+   * Open decisions from every check-in on record, fresh OR stale.
+   *
+   * This used to be fresh-only, which meant that on day 8 a programme's
+   * unresolved decisions silently disappeared from the only screen that shows
+   * them and from the KPI count - losing exactly the decisions that had been
+   * waiting longest. A week passing doesn't close a decision, so stale ones are
+   * carried over and marked rather than dropped.
+   */
   const attentionItems: AttentionItem[] = programmes.flatMap((p) => {
     const s = submissionsByProgramme[p.id];
-    if (!s || freshnessOf(s.submittedAt) !== "fresh") return [];
-    return s.openTopics.map((t) => ({ programmeId: p.id, topic: t }));
+    if (!s) return [];
+    const f = freshnessOf(s.submittedAt);
+    if (f === "missing") return [];
+    return s.openTopics.map((t) => ({
+      programmeId: p.id,
+      topic: t,
+      stale: f !== "fresh"
+    }));
   });
 
   const openAttentionCount = attentionItems.length;
+  const carriedOverCount = attentionItems.filter((it) => it.stale).length;
 
   const stats = [
     {
@@ -127,7 +176,12 @@ const loadDashboard = cache(async (customer: Customer) => {
     {
       label: "Open decisions",
       value: String(openAttentionCount),
-      hint: openAttentionCount === 0 ? "nothing waiting" : "raised by the leads",
+      hint:
+        openAttentionCount === 0
+          ? "nothing waiting"
+          : carriedOverCount > 0
+            ? `${carriedOverCount} carried over`
+            : "raised by the leads",
       tone: openAttentionCount === 0 ? ("warm" as const) : ("watch" as const)
     }
   ];
@@ -152,9 +206,18 @@ const loadDashboard = cache(async (customer: Customer) => {
     stats,
     headline,
     supporting,
+    computedHeadline,
+    computedSupporting,
     overall,
     boardEntries,
     attentionItems,
+    // Any programme with a check-in on record. Safe now that `attentionItems`
+    // carries stale points too: what the band shows for a programme is its full
+    // stored set, so an edit starts from the right baseline and cannot wipe
+    // points that were merely off-screen.
+    editableProgrammeIds: programmes
+      .filter((p) => submissionsByProgramme[p.id])
+      .map((p) => p.id),
     ceoLog,
     programmes,
     freshCount,
@@ -244,11 +307,25 @@ async function KpiSection({ customer }: { customer: Customer }) {
 
 
 async function HeroAndBoard({ customer }: { customer: Customer }) {
-  const { headline, supporting, overall, boardEntries, freshCount, total } =
-    await loadDashboard(customer);
+  const {
+    headline,
+    supporting,
+    computedHeadline,
+    computedSupporting,
+    overall,
+    boardEntries,
+    freshCount,
+    total
+  } = await loadDashboard(customer);
   return (
     <>
-      <MoodHero headline={headline} supporting={supporting} vibe={overall} />
+      <MoodHero
+        headline={headline}
+        supporting={supporting}
+        computedHeadline={computedHeadline}
+        computedSupporting={computedSupporting}
+        vibe={overall}
+      />
       <section className="flex flex-col">
         <div className="flex flex-wrap items-baseline justify-between gap-y-1 mb-2.5">
           <h2 className="font-serif text-xl text-ink-900">Weekly Programme Health</h2>
@@ -264,12 +341,13 @@ async function HeroAndBoard({ customer }: { customer: Customer }) {
 }
 
 async function AttentionSection({ customer }: { customer: Customer }) {
-  const { attentionItems, programmes } = await loadDashboard(customer);
+  const { attentionItems, programmes, editableProgrammeIds } = await loadDashboard(customer);
   return (
     <AttentionBand
       items={attentionItems}
       programmes={programmes}
       customerId={customer.id}
+      editableProgrammeIds={editableProgrammeIds}
     />
   );
 }

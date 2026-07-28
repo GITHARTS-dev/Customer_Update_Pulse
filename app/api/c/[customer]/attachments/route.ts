@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCustomer } from "@/lib/customers";
 import { resolveProgrammes, byIdOf } from "@/lib/programme-store";
 import { uploadFileToSiteDrive } from "@/lib/sharepoint";
+import { isoWeek } from "@/lib/helpers";
 import type { Attachment } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -11,12 +12,6 @@ const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MB per file
 
 interface RouteContext {
   params: Promise<{ customer: string }>;
-}
-
-function weekOf(date: Date): number {
-  const firstJan = new Date(date.getFullYear(), 0, 1);
-  const days = Math.floor((date.getTime() - firstJan.getTime()) / 86400000);
-  return Math.ceil((days + firstJan.getDay() + 1) / 7);
 }
 
 function safeName(name: string): string {
@@ -58,7 +53,7 @@ export async function POST(req: Request, ctx: RouteContext) {
     return NextResponse.json({ uploaded: [], failed: [] });
   }
 
-  const week = weekOf(new Date());
+  const week = isoWeek(new Date());
   const uploaded: Attachment[] = [];
   const failed: Array<{ name: string; error: string }> = [];
 

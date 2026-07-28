@@ -1,11 +1,11 @@
 import "server-only";
 import { cache } from "react";
-import type { OpenTopic, PersonSignal, Programme, PulseSubmission } from "./types";
+import type { OpenTopic, Programme, PulseSubmission } from "./types";
 import type { Customer } from "./customers";
 import { submissionsListIdFor } from "./customer-lists";
 import { fetchSubmissionsListItems } from "./submissions-fetch";
 import { resolveProgrammes, byIdOf } from "./programme-store";
-import { parsePeopleNote, personToLine, safeVibe } from "./helpers";
+import { isoWeekYear, safeVibe } from "./helpers";
 import { buildNameList, redactNames } from "./redact";
 import {
   updateSharePointListItemFields,
@@ -30,7 +30,6 @@ const COL = {
   submittedBy: "SubmittedBy",
   programmesUpdated: "ProgrammesUpdated",
   programmeUpdates: "ProgrammeUpdates",
-  peopleSignals: "PeopleSignals",
   openDecisions: "OpenDecisions",
   leadVoice: "LeadVoice",
   aiJson: "AIGeneratedJSON",
@@ -48,10 +47,6 @@ function configured(customer: Customer): boolean {
   return Boolean(SITE_ID && submissionsListIdFor(customer.id));
 }
 
-function peopleToText(people: PersonSignal[]): string {
-  return people.map(personToLine).join("\n");
-}
-
 function topicsToText(topics: OpenTopic[]): string {
   return topics.map((t) => t.title).join("\n");
 }
@@ -65,7 +60,6 @@ function submissionToFields(sub: PulseSubmission, byId: ProgrammeMap): Record<st
     [COL.accountable]: sub.accountable ?? "",
     [COL.programmesUpdated]: programmeName,
     [COL.programmeUpdates]: sub.aiNarrative,
-    [COL.peopleSignals]: peopleToText(sub.people),
     [COL.openDecisions]: topicsToText(sub.openTopics),
     [COL.leadVoice]: sub.leadFreeText ?? "",
     // Authoritative machine copy - the whole submission, for exact round-trip.
@@ -104,7 +98,6 @@ function rowToSubmission(
 
   const completionPct = asNumber(fields[COL.completionPct]);
   const weekNumber = asNumber(fields[COL.weekNumber]);
-  const people: PersonSignal[] = parsePeopleNote(asString(fields[COL.peopleSignals]));
   const openTopics: OpenTopic[] = asString(fields[COL.openDecisions])
     .split("\n")
     .map((l) => l.trim())
@@ -118,7 +111,6 @@ function rowToSubmission(
     weekNumber,
     submittedAt: asString(fields[COL.submittedAt]) || new Date().toISOString(),
     vibe: safeVibe(fields[COL.vibe]),
-    people,
     openTopics,
     leadFreeText: asString(fields[COL.leadVoice]) || undefined,
     jira: { total: 0, done: 0, inProgress: 0, todo: 0, completionPct, stalledNotes: [] },
@@ -138,6 +130,7 @@ function rowToSubmission(
         sub.signals = Array.isArray(parsed.signals) ? parsed.signals : sub.signals;
         sub.nextStep = parsed.nextStep ?? sub.nextStep;
         sub.attachments = Array.isArray(parsed.attachments) ? parsed.attachments : sub.attachments;
+        sub.edited = parsed.edited ?? sub.edited;
         if (parsed.jira) sub.jira = { ...parsed.jira, completionPct };
       }
     } catch {
@@ -150,10 +143,13 @@ function rowToSubmission(
   // those stay at no-names portfolio altitude. Signals are deliberately NOT
   // redacted or filtered: they are the lead's own sentences, shown verbatim
   // (names and numbers included), with Claude only having classified them.
-  const nameList = buildNameList([
-    asString(fields[COL.peopleSignals]),
-    asString(fields[COL.accountable])
-  ]);
+  //
+  // A hand-edited card is skipped entirely: the lead rewrote and published
+  // those words themselves, so they are shown exactly as typed. Redacting here
+  // would silently rewrite a deliberate edit (e.g. turning the accountable
+  // person's name into "the team"), which is the opposite of what publishing
+  // an edit is for.
+  const nameList = sub.edited ? [] : buildNameList([asString(fields[COL.accountable])]);
   if (nameList.length > 0) {
     sub.aiNarrative = redactNames(sub.aiNarrative, nameList);
     sub.aiEssence = redactNames(sub.aiEssence, nameList);
@@ -226,11 +222,18 @@ export async function writeSubmission(
   const fields = submissionToFields(submission, byIdOf(await resolveProgrammes(customer)));
 
   const rows = await fetchSubmissionsListItems(listId);
-  const existing = rows.find(
-    (r) =>
-      asString(r.fields[COL.programmeId]).trim() === submission.programmeId &&
-      asNumber(r.fields[COL.weekNumber]) === submission.weekNumber
-  );
+  // Match on programme + week + YEAR. Week numbers restart every January, so
+  // matching on the number alone meant a check-in a year later PATCHed over the
+  // same week of the previous year - destroying that week's vibe, narrative and
+  // attachments, and losing a dot from the trend. There is no year column, so
+  // it is derived from the row's own SubmittedAt.
+  const targetYear = isoWeekYear(new Date(submission.submittedAt));
+  const existing = rows.find((r) => {
+    if (asString(r.fields[COL.programmeId]).trim() !== submission.programmeId) return false;
+    if (asNumber(r.fields[COL.weekNumber]) !== submission.weekNumber) return false;
+    const rowAt = new Date(asString(r.fields[COL.submittedAt]));
+    return !isNaN(rowAt.getTime()) && isoWeekYear(rowAt) === targetYear;
+  });
 
   if (existing) {
     const res = await updateSharePointListItemFields(SITE_ID, listId, existing.id, fields);

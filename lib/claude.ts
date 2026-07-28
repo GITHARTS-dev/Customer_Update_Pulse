@@ -8,7 +8,6 @@ export interface NarrativeInput {
   programmeName: string;
   lead: string;
   vibe: Vibe;
-  peopleNote: string;
   openTopics: string;
   leadFreeText: string;
 }
@@ -151,7 +150,6 @@ function programmeBlock(input: NarrativeInput, candidates: string[], id?: string
     `Programme: ${input.programmeName}`,
     `Vibe the lead chose this week: ${input.vibe.replace("_", " ")}`,
     "",
-    `People notes from the lead (may contain names, never repeat any name in the narrative): ${input.peopleNote || "(none)"}`,
     `Open decisions the lead raised: ${input.openTopics || "(none)"}`,
     `Lead's own words: ${input.leadFreeText || "(none)"}`,
     "",

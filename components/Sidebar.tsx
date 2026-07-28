@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { signOut } from "next-auth/react";
-import { CUSTOMERS, getCustomer, primaryCustomer } from "@/lib/customers";
+import { CUSTOMERS, getCustomer } from "@/lib/customers";
 import { freshnessOf, isoWeek, safeVibe, shortDate, VIBE_COLOR } from "@/lib/helpers";
 import type { Programme, PulseSubmission } from "@/lib/types";
 
@@ -65,10 +65,11 @@ export function Sidebar({
     };
   }, [mobileOpen]);
 
-  // The customer whose logo sits beside HARTS - the active one, or the primary
-  // as a sensible default for transient/loading states.
-  const brandCustomer =
-    (activeCustomerId ? getCustomer(activeCustomerId) : undefined) ?? primaryCustomer();
+  // The customer whose logo sits beside HARTS. Undefined when the customer
+  // isn't known yet - route-level loading.tsx has no params - and in that case
+  // NO customer logo is drawn rather than falling back to the primary one,
+  // which made navigating to any other customer flash the wrong brand first.
+  const brandCustomer = activeCustomerId ? getCustomer(activeCustomerId) : undefined;
 
   // Order a programme by its current vibe, matching the home mood board:
   // fresh going-well → watch → stuck → quiet, then stale, then not-yet-in.
@@ -93,16 +94,20 @@ export function Sidebar({
               className="h-[26px] w-auto shrink-0"
               priority
             />
-            <span className="h-5 w-px bg-sand-300 shrink-0" />
-            <Image
-              key={brandCustomer.id}
-              src={brandCustomer.logo}
-              alt={brandCustomer.name}
-              width={brandCustomer.logoWidth}
-              height={brandCustomer.logoHeight}
-              className="h-[17px] w-auto object-contain shrink-0"
-              priority
-            />
+            {brandCustomer && (
+              <>
+                <span className="h-5 w-px bg-sand-300 shrink-0" />
+                <Image
+                  key={brandCustomer.id}
+                  src={brandCustomer.logo}
+                  alt={brandCustomer.name}
+                  width={brandCustomer.logoWidth}
+                  height={brandCustomer.logoHeight}
+                  className="h-[17px] w-auto object-contain shrink-0"
+                  priority
+                />
+              </>
+            )}
           </div>
           <div className="mt-3 flex items-center gap-2">
             <span className="h-px flex-1" style={{ background: RAINBOW, opacity: 0.5 }} />

@@ -2,7 +2,7 @@ import "server-only";
 import type { PulseSubmission, Vibe } from "./types";
 import type { Customer } from "./customers";
 import { readAllSubmissionRows } from "./store";
-import { isoWeek, safeVibe } from "./helpers";
+import { isoWeek, isoWeekYear, safeVibe } from "./helpers";
 
 /**
  * A single week's mood for one programme. We deliberately keep only the vibe
@@ -22,10 +22,14 @@ export interface WeekSnapshot {
 function snapshotFrom(sub: PulseSubmission): WeekSnapshot {
   const d = new Date(sub.submittedAt);
   const valid = !isNaN(d.getTime());
+  const when = valid ? d : new Date();
   return {
     programmeId: sub.programmeId,
-    year: valid ? d.getFullYear() : new Date().getFullYear(),
-    weekNumber: sub.weekNumber || isoWeek(valid ? d : new Date()),
+    // ISO week-year, not the calendar year: around New Year the two disagree,
+    // and pairing an ISO week number with a calendar year would put one real
+    // week under two different keys (two dots for one week).
+    year: isoWeekYear(when),
+    weekNumber: sub.weekNumber || isoWeek(when),
     submittedAt: sub.submittedAt,
     vibe: safeVibe(sub.vibe)
   };

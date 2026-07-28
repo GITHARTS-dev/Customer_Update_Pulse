@@ -65,6 +65,29 @@
   .pill {
     @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium;
   }
+  /* Same dawn-light wash as the page background, scoped to a scrolling element
+     (e.g. a full-screen overlay) rather than fixed to the viewport, so surfaces
+     that paint over `body::before` still carry the same warm, tinted light
+     instead of going flat and plain. */
+  .dawn-wash {
+    background-color: theme('colors.sand.50');
+    background-image:
+      radial-gradient(ellipse 900px 620px at 96% -10%, rgba(232, 160, 32, 0.10), transparent 62%),
+      radial-gradient(ellipse 820px 600px at -12% 105%, rgba(108, 71, 232, 0.08), transparent 62%);
+    background-repeat: no-repeat;
+    background-attachment: local;
+  }
+  /* Hide scrollbars on the horizontal programme rail while staying scrollable
+     (mouse drag / trackpad / touch all still work) - the rail's own snap
+     points and edge fade are the scroll affordance, a visible scrollbar would
+     just add visual noise under the tiles. */
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
   /* Headings previously leaned on a serif display face for weight. Now that the
      whole UI is DM Sans, `font-serif` still marks a heading - give it a display
      weight and a touch of negative tracking so titles keep their presence. An

@@ -39,8 +39,10 @@ export function HeroBoardSkeleton() {
       </section>
 
       <section className="flex flex-col">
+        {/* Same heading the real board uses - a different one here would flash
+            and swap as the content streams in. */}
         <div className="flex items-baseline justify-between mb-2.5">
-          <h2 className="font-serif text-xl text-ink-900">All Programmes</h2>
+          <h2 className="font-serif text-xl text-ink-900">Weekly Programme Health</h2>
         </div>
         <div className="flex flex-col gap-3.5">
           {[0, 1, 2, 3].map((i) => (

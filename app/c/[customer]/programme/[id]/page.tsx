@@ -5,9 +5,9 @@ import { Sidebar } from "@/components/Sidebar";
 import { SidebarData } from "@/components/SidebarData";
 import { BabyElephant } from "@/components/BabyElephant";
 import { SunRays } from "@/components/SunRays";
-import { ActionButtons } from "@/components/ActionButtons";
-import { AskNote } from "@/components/AskNote";
 import { FileViewedButton } from "@/components/FileViewedButton";
+import { EditableNarrative } from "@/components/EditableNarrative";
+import { EditableSignals, type AskState } from "@/components/EditableSignals";
 import { VibeTrajectory } from "@/components/VibeTrajectory";
 import { LiveJiraCard } from "@/components/LiveJiraCard";
 import { ProgrammeViewTracker } from "@/components/ProgrammeViewTracker";
@@ -17,17 +17,15 @@ import { resolveProgrammes, byIdOf } from "@/lib/programme-store";
 import {
   actionKey,
   freshnessOf,
-  parseBold,
   relativeTime,
   safeVibe,
-  titleCaseName,
   VIBE_COLOR,
   VIBE_TONE
 } from "@/lib/helpers";
 import { readAllSubmissions } from "@/lib/store";
 import { readCeoLog } from "@/lib/ceo-store";
 import { readProgrammeHistory } from "@/lib/history-store";
-import { VIBE_LABEL, type JiraSnapshot, type Programme, type SignalKind } from "@/lib/types";
+import { VIBE_LABEL, type JiraSnapshot, type Programme } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -54,12 +52,6 @@ export function generateStaticParams() {
 interface PageProps {
   params: Promise<{ customer: string; id: string }>;
 }
-
-const SIGNAL_STYLE: Record<SignalKind, { bg: string; dot: string; label: string }> = {
-  win: { bg: "#E1F0E7", dot: "#3BA46A", label: "Won" },
-  watch: { bg: "#F8E7CC", dot: "#E8A020", label: "Watching" },
-  ask: { bg: "#F2D9D3", dot: "#D6473F", label: "Ask" }
-};
 
 export default async function ProgrammePage({ params }: PageProps) {
   const { customer: cid, id } = await params;
@@ -148,9 +140,20 @@ async function ProgrammeBody({
   const freshness = freshnessOf(submission.submittedAt);
   const vibe = safeVibe(submission.vibe);
   const tone = VIBE_TONE[vibe];
-  const narrativeParts = parseBold(submission.aiNarrative);
   const signals = submission.signals ?? [];
   const attachments = submission.attachments ?? [];
+
+  // Sreema's response to each ask, flattened here so the (client) signals card
+  // gets plain props instead of the whole server-only CEO log.
+  const askState: Record<string, AskState> = {};
+  for (const sig of signals) {
+    if (sig.kind !== "ask") continue;
+    const key = actionKey("signal", programme.id, sig.text);
+    const st = ceoLog.actions[key];
+    const note = ceoLog.notes[key];
+    if (!st && !note) continue;
+    askState[key] = { status: st?.status, noteText: note?.text, noteTo: note?.to };
+  }
 
   return (
     <>
@@ -220,116 +223,23 @@ async function ProgrammeBody({
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
         {/* Left column: narrative + signals */}
         <div className="lg:col-span-3 flex flex-col gap-4">
-          <section className="card px-5 sm:px-6 py-5 relative">
-            <span className="absolute -top-2.5 left-5 px-2 py-0.5 text-[9px] uppercase tracking-[0.14em] bg-cream border border-sand-200 rounded-full text-ink-500">
-              {freshness === "fresh" ? "This week's narrative" : "Last narrative"}
-            </span>
-            <blockquote className="font-serif text-lg sm:text-xl text-ink-900 leading-snug">
-              “
-              {narrativeParts.map((p, i) =>
-                p.bold ? (
-                  <strong key={i} className="text-coral font-normal">
-                    {p.text}
-                  </strong>
-                ) : (
-                  <span key={i}>{p.text}</span>
-                )
-              )}
-              ”
-            </blockquote>
-            <p className="mt-3 text-[11px] text-ink-400">
-              Written by Claude from this week's check-in.
-            </p>
-          </section>
+          <EditableNarrative
+            programmeId={programme.id}
+            narrative={submission.aiNarrative}
+            label={freshness === "fresh" ? "This week's narrative" : "Last narrative"}
+            isEdited={Boolean(submission.edited)}
+            isFresh={freshness === "fresh"}
+          />
 
-          <section className="card px-5 sm:px-6 py-5">
-            <h3 className="font-serif text-lg text-ink-900 mb-1">Signals this week</h3>
-            <p className="text-[11px] text-ink-400 mb-3">
-              The lead's own words this week, flagged as wins, watch-outs, and asks.
-            </p>
-            {signals.length === 0 && attachments.length === 0 ? (
-              <p className="text-sm text-ink-400">No signals flagged.</p>
-            ) : (
-              (() => {
-                const asks = signals.filter((s) => s.kind === "ask");
-                const rest = signals.filter((s) => s.kind !== "ask");
-                return (
-                  <>
-                    {asks.length > 0 && (
-                      <div className="mb-3 rounded-xl border border-[#D6473F33] bg-[#D6473F0A] px-3.5 py-3">
-                        <p className="text-[9px] uppercase tracking-[0.16em] font-semibold text-[#B03A33] mb-2 flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#D6473F] animate-pulse" />
-                          Waiting on you
-                        </p>
-                        <ul className="space-y-2">
-                          {asks.map((sig, i) => {
-                            const key = actionKey("signal", programme.id, sig.text);
-                            const state = ceoLog.actions[key];
-                            const status = state?.status ?? ("open" as const);
-                            const handled = state !== undefined;
-                            const note = ceoLog.notes[key];
-                            return (
-                              <li key={i}>
-                                <div className="flex items-start gap-3">
-                                  <span
-                                    className={`flex-1 text-sm leading-snug ${
-                                      handled
-                                        ? "text-ink-400 line-through decoration-1"
-                                        : "text-ink-900 font-medium"
-                                    }`}
-                                  >
-                                    {sig.text}
-                                  </span>
-                                  <ActionButtons
-                                    actionKey={key}
-                                    initialStatus={status}
-                                    programmeId={programme.id}
-                                    askText={sig.text}
-                                  />
-                                </div>
-                                <AskNote
-                                  actionKey={key}
-                                  programmeId={programme.id}
-                                  askText={sig.text}
-                                  initialText={note?.text ?? ""}
-                                  initialTo={note?.to}
-                                />
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
-                    )}
-                    {rest.length > 0 && (
-                      <ul className="space-y-2">
-                        {rest.map((sig, i) => {
-                          const style = SIGNAL_STYLE[sig.kind];
-                          return (
-                            <li key={i} className="flex items-start gap-3">
-                              <span
-                                className="mt-0.5 pill text-[9px] py-0.5 px-2 shrink-0"
-                                style={{ backgroundColor: style.bg, color: style.dot }}
-                              >
-                                <span
-                                  className="w-1.5 h-1.5 rounded-full"
-                                  style={{ backgroundColor: style.dot }}
-                                />
-                                {style.label}
-                              </span>
-                              <span className="flex-1 text-sm leading-snug text-ink-800">
-                                {sig.text}
-                              </span>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                  </>
-                );
-              })()
-            )}
+          <EditableSignals
+            programmeId={programme.id}
+            signals={signals}
+            askState={askState}
+            hasAttachments={attachments.length > 0}
+            isFresh={freshness === "fresh"}
+          >
             {attachments.length > 0 && (
-              <div className={signals.length > 0 ? "mt-4 pt-4 border-t border-sand-200" : ""}>
+              <>
                 <p className="text-[9px] tracking-[0.14em] uppercase text-ink-400 mb-2">
                   Shared by the lead
                 </p>
@@ -414,42 +324,22 @@ async function ProgrammeBody({
                     );
                   })}
                 </ul>
-              </div>
+              </>
             )}
-          </section>
-
+          </EditableSignals>
         </div>
 
-        {/* Right column: trend, then delivery, then people */}
+        {/* Right column: trend, then delivery */}
         <div className="lg:col-span-2 flex flex-col gap-4">
-          <VibeTrajectory history={history} currentVibe={vibe} />
+          <VibeTrajectory
+            history={history}
+            currentVibe={vibe}
+            isFresh={freshness === "fresh"}
+          />
 
           <Suspense fallback={<JiraCardSkeleton />}>
             <LiveJiraCard projectKey={programme.jiraProjectKey} fallback={submission.jira} />
           </Suspense>
-
-          <section className="card px-5 py-5">
-            <h3 className="font-serif text-lg text-ink-900 mb-3">Key people</h3>
-            {submission.people.length === 0 ? (
-              <p className="text-sm text-ink-400">No people flagged.</p>
-            ) : (
-              <ul className="space-y-2">
-                {submission.people.map((p, i) => (
-                  <li
-                    key={`${p.name}-${i}`}
-                    className="px-3 py-2 rounded-lg bg-sand-50 border border-sand-200"
-                  >
-                    <span className="text-sm font-medium text-ink-900 block truncate">
-                      {titleCaseName(p.name)}
-                    </span>
-                    {p.note && p.note !== p.name && (
-                      <p className="text-[11px] text-ink-500 mt-0.5">{p.note}</p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
         </div>
       </div>
     </>

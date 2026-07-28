@@ -89,13 +89,63 @@ export interface SharePointListItem {
   fields: Record<string, unknown>;
 }
 
-export function fetchSharePointListItems(
+/** Graph caps a single page well below this; the rest arrives via @odata.nextLink. */
+const LIST_PAGE_SIZE = 200;
+/**
+ * A hard stop so a runaway list can never hang a page render. One row per
+ * programme per week means even a large customer takes years to approach it;
+ * reaching it is a signal to archive, not a normal state, so it is logged.
+ */
+const LIST_MAX_PAGES = 25;
+
+interface GraphListPage {
+  value: SharePointListItem[];
+  "@odata.nextLink"?: string;
+}
+
+/**
+ * Every item in a list, following Graph's paging.
+ *
+ * This used to be a single `$top=500` read with no paging, which silently
+ * truncated: one row per programme per week means a customer crosses 500 rows
+ * in little over a year, and Graph gives no ordering guarantee, so the rows
+ * that fell off were arbitrary. The visible symptom would have been a
+ * programme quietly showing an old week as its latest, or dropping off the
+ * board entirely - so this now walks every page.
+ */
+export async function fetchSharePointListItems(
   siteId: string,
   listId: string
 ): Promise<SharePointResult<{ value: SharePointListItem[] }>> {
-  return graphFetch(
-    `/sites/${siteId}/lists/${listId}/items?expand=fields&$top=500`
-  );
+  const all: SharePointListItem[] = [];
+  let path: string | undefined =
+    `/sites/${siteId}/lists/${listId}/items?expand=fields&$top=${LIST_PAGE_SIZE}`;
+
+  for (let page = 0; page < LIST_MAX_PAGES && path; page++) {
+    const res: SharePointResult<GraphListPage> = await graphFetch<GraphListPage>(path);
+    if (!res.ok) {
+      // A later page failing after earlier ones succeeded would mean showing a
+      // partial list as if it were complete - which is the exact silent
+      // truncation this function exists to avoid. Fail the whole read instead.
+      return res;
+    }
+    all.push(...(res.data.value ?? []));
+
+    const next: string | undefined = res.data["@odata.nextLink"];
+    // nextLink comes back absolute; graphFetch prepends the Graph origin, so
+    // strip it back to a path. Anything unexpected ends the walk.
+    path = next?.startsWith("https://graph.microsoft.com/v1.0")
+      ? next.slice("https://graph.microsoft.com/v1.0".length)
+      : undefined;
+
+    if (path && page === LIST_MAX_PAGES - 1) {
+      console.warn(
+        `SharePoint list ${listId} exceeded ${LIST_MAX_PAGES * LIST_PAGE_SIZE} items; older rows were not read.`
+      );
+    }
+  }
+
+  return { ok: true, data: { value: all } };
 }
 
 export function writeSharePointListItem(

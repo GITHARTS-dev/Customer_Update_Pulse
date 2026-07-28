@@ -1,4 +1,4 @@
-import type { PersonSignal, Vibe } from "./types";
+import type { Vibe } from "./types";
 
 export const VIBE_COLOR: Record<Vibe, string> = {
   going_well: "#3BA46A",
@@ -80,9 +80,14 @@ export function emotionalOneLiner(
       : `A few programmes are carrying something heavy this week. A little of your time would mean a lot.`;
   }
   if (watch > 0) {
-    return watch === 1
-      ? "Things are in good shape. Just one programme would love a watchful eye."
-      : `Things are in good shape. A couple of programmes would love a watchful eye.`;
+    // Say the number past two - "a couple" for five reads as carelessness.
+    if (watch === 1) {
+      return "Things are in good shape. Just one programme would love a watchful eye.";
+    }
+    if (watch === 2) {
+      return "Things are in good shape. A couple of programmes would love a watchful eye.";
+    }
+    return `Things are in good shape. ${watch} programmes would love a watchful eye.`;
   }
   if (well === freshCount) {
     return "Everything is humming beautifully this week. Take a breath and enjoy it.";
@@ -99,12 +104,37 @@ export function actionKey(
   return `${prefix}::${programmeId}::${norm}`;
 }
 
+/**
+ * ISO-8601 week number. THE single definition of "which week is this" for the
+ * whole app - the sidebar footer, the stored WeekNumber, the row title, the
+ * trend chart's W-labels and the same-week upsert all have to agree, or one
+ * real week ends up split across two rows (and two dots on the trend).
+ */
 export function isoWeek(date: Date = new Date()): number {
+  const d = thursdayOf(date);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+}
+
+/**
+ * The ISO week-YEAR that goes with `isoWeek` - not always the calendar year
+ * (1 Jan can fall in the last week of the previous one). Needed because a week
+ * number alone repeats annually: without pairing the two, next year's week 31
+ * would be treated as the same week as this year's.
+ */
+export function isoWeekYear(date: Date = new Date()): number {
+  return thursdayOf(date).getUTCFullYear();
+}
+
+/**
+ * The Thursday of the given date's ISO week. ISO defines a week's year by the
+ * year its Thursday falls in, so both helpers above pivot on it.
+ */
+function thursdayOf(date: Date): Date {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   const day = d.getUTCDay() || 7;
   d.setUTCDate(d.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return d;
 }
 
 export function shortDate(date: Date = new Date()): string {
@@ -126,100 +156,4 @@ export function freshnessOf(
   const then = new Date(submittedAt).getTime();
   const ageDays = (now.getTime() - then) / 86400000;
   return ageDays > staleDays ? "stale" : "fresh";
-}
-
-// ── People notes ─────────────────────────────────────────────
-// A lead's "people signals" field is one person per line. Each line is either
-// a bare name ("Vivek") or a name plus a short comment ("Vivek: warm and
-// engaged"). These helpers are the single source of truth for turning that
-// free text into { name, note } and back, so the write → read → prefill round
-// trip is stable and never amplifies (the old bug grew "Vivek" into
-// "Vivek: Vivek: Vivek: Vivek" a little more each week).
-
-const PEOPLE_LINES_MAX = 6;
-const PERSON_SEPARATOR = /[:,\-–—]/;
-const PERSON_WATCH_RE = /(cool|quiet|watch|push|frustrat|miss|delay|wobbl|stall|block)/;
-const PERSON_WARM_RE = /(warm|asked|leaning|happy|landed|signed|launch|won|hired|joined|offer)/;
-
-function cleanPersonName(raw: string): string {
-  const words = raw
-    .split(/\s+/)
-    .map((w) => w.replace(/[^\p{L}\p{M}'’\-]/gu, ""))
-    .filter(Boolean)
-    .slice(0, 3);
-  const name = words.join(" ").trim();
-  return name.length > 0 ? name.slice(0, 60) : "Someone";
-}
-
-/**
- * Splits one people line into a person's name and an optional comment. A line
- * with no separator is treated as a bare name (no note) - this is what lets the
- * card show "just the name" when the lead only listed a person. Any note that
- * turns out to be only the name repeated (historical corruption) is dropped.
- */
-export function parsePersonLine(line: string): { name: string; note?: string } {
-  const trimmed = line.trim();
-  const sepIdx = trimmed.search(PERSON_SEPARATOR);
-  const namePart = sepIdx >= 0 ? trimmed.slice(0, sepIdx) : trimmed;
-  const notePart = sepIdx >= 0 ? trimmed.slice(sepIdx + 1).trim() : "";
-
-  const name = cleanPersonName(namePart);
-  let note: string | undefined = notePart.length > 0 ? notePart : undefined;
-  if (note) {
-    const tokens = note
-      .split(PERSON_SEPARATOR)
-      .map((t) => t.trim())
-      .filter(Boolean);
-    if (tokens.length > 0 && tokens.every((t) => t.toLowerCase() === name.toLowerCase())) {
-      note = undefined;
-    }
-  }
-  return { name, note };
-}
-
-/**
- * Parses a whole people-signals field (one person per line) into structured
- * signals, deduplicated by name. The same person listed twice - whether the
- * lead typed it, or an earlier submission's pre-fill compounded it - collapses
- * to a single entry, so "Key people" is always a clean list of distinct people.
- * If a later mention adds a note the first lacked, that note is kept.
- */
-export function parsePeopleNote(raw: string): PersonSignal[] {
-  const lines = raw
-    .split(/\n|;/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-  const byName = new Map<string, PersonSignal>();
-  for (const line of lines) {
-    const lower = line.toLowerCase();
-    const signal: PersonSignal["signal"] = PERSON_WATCH_RE.test(lower)
-      ? "watch"
-      : PERSON_WARM_RE.test(lower)
-        ? "warm"
-        : "neutral";
-    const { name, note } = parsePersonLine(line);
-    const key = name.toLowerCase();
-    const existing = byName.get(key);
-    if (!existing) {
-      if (byName.size >= PEOPLE_LINES_MAX) continue;
-      byName.set(key, { name, signal, note });
-    } else if (!existing.note && note) {
-      existing.note = note;
-    }
-  }
-  return Array.from(byName.values());
-}
-
-/** Formats a person back to one storage/prefill line - the inverse of parsePersonLine. */
-export function personToLine(p: PersonSignal): string {
-  return p.note && p.note !== p.name ? `${p.name}: ${p.note}` : p.name;
-}
-
-/** Capitalises the first letter of each word in a name, leaving the rest as-is. */
-export function titleCaseName(name: string): string {
-  return name
-    .split(/(\s+)/)
-    .map((part) => (/^\s+$/.test(part) ? part : part.charAt(0).toUpperCase() + part.slice(1)))
-    .join("");
 }

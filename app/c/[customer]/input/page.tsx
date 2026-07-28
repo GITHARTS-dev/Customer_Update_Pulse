@@ -52,8 +52,6 @@ interface Entry {
   accountable: string;
   vibe: Vibe;
   vibeTouched: boolean;
-  peopleNote: string;
-  noPeople: boolean;
   openTopics: string;
   noDecisions: boolean;
   freeText: string;
@@ -84,14 +82,6 @@ function isThisWeek(iso: string | undefined): boolean {
   return (Date.now() - new Date(iso).getTime()) / 86400000 <= 7;
 }
 
-function peopleSignalsToText(s: PulseSubmission): string {
-  // "name: note" (or just the name) so the round-trip stays stable and never
-  // re-embeds the name into its own note - see personToLine / parsePersonLine.
-  return s.people
-    .map((p) => (p.note && p.note !== p.name ? `${p.name}: ${p.note}` : p.name))
-    .join("\n");
-}
-
 function openTopicsToText(s: PulseSubmission): string {
   return s.openTopics.map((t) => t.title).join("\n");
 }
@@ -101,8 +91,6 @@ function blankEntry(lead: string): Entry {
     accountable: lead,
     vibe: "going_well",
     vibeTouched: false,
-    peopleNote: "",
-    noPeople: false,
     openTopics: "",
     noDecisions: false,
     freeText: "",
@@ -113,15 +101,12 @@ function blankEntry(lead: string): Entry {
 }
 
 function entryFromExisting(s: PulseSubmission, lead: string): Entry {
-  const peopleText = peopleSignalsToText(s);
   const topicsText = openTopicsToText(s);
   const thisWeek = isThisWeek(s.submittedAt);
   return {
     accountable: s.accountable ?? lead,
     vibe: s.vibe,
     vibeTouched: true,
-    peopleNote: peopleText,
-    noPeople: peopleText.length === 0,
     openTopics: topicsText,
     noDecisions: topicsText.length === 0,
     freeText: s.leadFreeText ?? "",
@@ -133,18 +118,17 @@ function entryFromExisting(s: PulseSubmission, lead: string): Entry {
 
 interface Coverage {
   vibe: boolean;
-  people: boolean;
   decisions: boolean;
   freetext: boolean;
   all: boolean;
 }
 
-function coverageOf(e: Entry): Coverage {
+function coverageOf(e: Entry | undefined): Coverage {
+  if (!e) return { vibe: false, decisions: false, freetext: false, all: false };
   const vibe = e.vibeTouched;
-  const people = e.noPeople || e.peopleNote.trim().length > 0;
   const decisions = e.noDecisions || e.openTopics.trim().length > 0;
   const freetext = isMeaningfulProse(e.freeText);
-  return { vibe, people, decisions, freetext, all: vibe && people && decisions && freetext };
+  return { vibe, decisions, freetext, all: vibe && decisions && freetext };
 }
 
 function LeadInputForm() {
@@ -187,6 +171,22 @@ function LeadInputForm() {
   const [dragActive, setDragActive] = useState(false);
 
   const programme = byId[current] ?? programmes[0];
+
+  /**
+   * `current` can point at a programme that no longer exists - the resolved
+   * list arrives after the config one, and a programme can be removed from the
+   * panel below while it is open. Snapping back to the first real programme
+   * keeps the heading, the entry being edited and the submit gate describing
+   * the same thing (and stops `programme` being undefined when the last
+   * programme is removed).
+   */
+  useEffect(() => {
+    if (programmes.length === 0) return;
+    if (byId[current]) return;
+    setCurrent(programmes[0].id);
+    // byId is derived from programmes; current is what we are correcting.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [programmes, current]);
 
   // Sreema's responses for the current programme, merged per ask: an action
   // (Need more info / Noted / Let's talk) and/or a note (tagged with who it was
@@ -341,7 +341,6 @@ function LeadInputForm() {
   const curCoverage = coverageOf(cur);
   const curSections = [
     { key: "vibe", label: "Vibe", covered: curCoverage.vibe },
-    { key: "people", label: "People", covered: curCoverage.people },
     { key: "decisions", label: "Decisions", covered: curCoverage.decisions },
     { key: "freetext", label: "Your words", covered: curCoverage.freetext }
   ];
@@ -383,7 +382,6 @@ function LeadInputForm() {
           programmeId: p.id,
           accountable: en.accountable || p.lead,
           vibe: en.vibe,
-          peopleNote: en.noPeople ? "" : en.peopleNote,
           openTopics: en.noDecisions ? "" : en.openTopics,
           leadFreeText: en.freeText,
           // Kept existing files + this session's uploads = the authoritative set
@@ -425,10 +423,57 @@ function LeadInputForm() {
     setError(null);
   }
 
+  // Every programme removed. Without this the form dereferences an undefined
+  // programme and the page hard-crashes instead of explaining itself.
+  if (!programme) {
+    return (
+      <div className="flex flex-col lg:flex-row min-h-screen">
+        {/* Fed the same data the form already loaded, so the sidebar's status
+            dots and programme list match reality here too. Without these props
+            every programme reads as "not yet in". */}
+        <Sidebar
+          activeCustomerId={customer.id}
+          submissionsByProgramme={existingByProgramme}
+          programmes={programmes}
+        />
+        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 sm:py-8 w-full lg:max-w-[760px] min-w-0">
+          <div className="card px-6 sm:px-10 py-10 text-center">
+            <h1 className="font-serif text-2xl text-ink-900">No programmes yet</h1>
+            <p className="mt-2 text-sm text-ink-500 max-w-sm mx-auto">
+              There is nothing to check in on for {customer.shortName ?? customer.name}. Add a
+              programme below and it will appear here.
+            </p>
+            <div className="mt-6 text-left">
+              <ProgrammeManager
+                apiBase={apiBase}
+                programmes={programmes}
+                setProgrammes={setProgrammes}
+                disabled={false}
+              />
+            </div>
+            <Link
+              href={`/c/${customer.id}`}
+              className="mt-6 inline-block px-4 py-2 rounded-full bg-sand-100 text-ink-700 text-sm font-medium hover:bg-sand-200 transition"
+            >
+              Back to pulse
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   if (submittedCount !== null) {
     return (
       <div className="flex flex-col lg:flex-row min-h-screen">
-        <Sidebar activeCustomerId={customer.id} />
+        {/* Fed the same data the form already loaded, so the sidebar's status
+            dots and programme list match reality here too. Without these props
+            every programme reads as "not yet in". */}
+        <Sidebar
+          activeCustomerId={customer.id}
+          submissionsByProgramme={existingByProgramme}
+          programmes={programmes}
+        />
         <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 sm:py-8 w-full lg:max-w-[760px] min-w-0">
           <div className="card px-6 sm:px-10 py-8 sm:py-12 text-center">
             <div className="flex justify-center mb-4">
@@ -473,9 +518,13 @@ function LeadInputForm() {
 
   return (
     <div className="flex flex-col lg:flex-row min-h-screen">
-      <Sidebar activeCustomerId={customer.id} />
-      <main className="flex-1 px-4 sm:px-6 lg:px-8 py-4 sm:py-6 w-full lg:max-w-[760px] min-w-0">
-        <header className="mb-4">
+      <Sidebar
+        activeCustomerId={customer.id}
+        submissionsByProgramme={existingByProgramme}
+        programmes={programmes}
+      />
+      <main className="flex-1 px-4 sm:px-6 lg:px-8 py-4 sm:py-6 w-full lg:max-w-[1080px] min-w-0">
+        <header className="mb-4 pb-4 border-b border-sand-200">
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 sm:gap-4">
             <div>
               <h1 className="font-serif text-2xl sm:text-3xl text-ink-900">Your weekly check-in</h1>
@@ -505,409 +554,393 @@ function LeadInputForm() {
           </div>
         )}
 
-        {/* Chips: programmes queued for this submission */}
-        {includedList.length > 0 && (
-          <div className="mb-4 flex flex-wrap gap-2">
-            {includedList.map((p) => {
-              const cov = coverageOf(entries[p.id]);
-              const en = entries[p.id];
-              const active = p.id === current;
-              return (
-                <span
-                  key={p.id}
-                  className={`inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full border text-xs transition ${
-                    active
-                      ? "border-coral bg-coral/10 text-ink-900"
-                      : "border-sand-200 bg-sand-50 text-ink-700"
+        {/* Programme rail: every programme at a glance, tap any to jump -
+            replaces the old dropdown entirely */}
+        <div className="mb-4">
+          <ProgrammeRail
+            programmes={programmes}
+            current={current}
+            setCurrent={setCurrent}
+            entries={entries}
+            existingByProgramme={existingByProgramme}
+            included={included}
+            loading={loadingExisting}
+          />
+        </div>
+
+        {!included.has(current) && existingByProgramme[current] && (
+          <div className="mb-4">
+            <SameAsLastWeekBanner
+              programme={programme}
+              existing={existingByProgramme[current]}
+              onKeep={() => markTouched(current)}
+            />
+          </div>
+        )}
+
+        <div className="flex flex-col lg:flex-row lg:items-start gap-4 lg:gap-0">
+          {/* Sidebar: Sreema context, so the space beside the fields on wide
+              screens holds something useful instead of sitting empty. Comes
+              first in the DOM so it still reads naturally above the fields
+              when stacked on mobile. A hairline divider (bottom on mobile,
+              left on desktop) keeps it visually distinct from the fields
+              rather than blending together. */}
+          <aside className="order-1 lg:order-2 lg:w-72 lg:shrink-0 space-y-4 pb-5 border-b border-sand-200 lg:pb-0 lg:border-b-0 lg:border-l lg:border-sand-200 lg:pl-6">
+            {cur.existedThisWeek && (
+              <div className="px-4 py-3 rounded-lg bg-[#F8E7CC] border border-[#E8C685] text-[#7A4A0E] text-sm flex items-start gap-3">
+                <span className="text-base leading-none">↻</span>
+                <div>
+                  <strong>{programme.name} was already checked in this week.</strong>{" "}
+                  Submitting again will overwrite it. The form is pre-filled with what was there.
+                </div>
+              </div>
+            )}
+
+            {sreemaResponses.length > 0 && (
+              <div className="px-4 py-3 rounded-lg bg-[#ECEAF7] border border-[#D0CBE2]">
+                <p className="text-[10px] uppercase tracking-[0.14em] text-[#6C6689] mb-2 flex items-center gap-1.5">
+                  <span className="text-sm leading-none">✉</span> From Sreema
+                </p>
+                <ul className="space-y-2.5">
+                  {sreemaResponses.map((r, i) => {
+                    const person = personById(r.to);
+                    return (
+                      <li key={i} className="text-sm min-w-0">
+                        {r.askText && (
+                          <p className="text-[11px] text-ink-500 mb-0.5 break-words">
+                            re: “{r.askText}”
+                          </p>
+                        )}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {r.statusLabel && (
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-white/70 text-[#6C6689] border border-[#D0CBE2]">
+                              {r.statusLabel}
+                            </span>
+                          )}
+                          {r.note && (
+                            <span className="text-ink-800 whitespace-pre-wrap break-words">
+                              {person && <span className="font-medium text-coral">@{person.first} </span>}
+                              {r.note}
+                            </span>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
+            {(() => {
+              const viewedAt = ceoLog.views[current];
+              const sub = existingByProgramme[current];
+              const seen =
+                viewedAt &&
+                sub?.submittedAt &&
+                new Date(viewedAt) >= new Date(sub.submittedAt);
+              return seen ? (
+                <p className="text-[11px] text-ink-500 flex items-center gap-1.5 px-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-leaf shrink-0" />
+                  Sreema viewed your last check-in {relativeTime(viewedAt)}.
+                </p>
+              ) : null;
+            })()}
+
+            {!cur.existedThisWeek && sreemaResponses.length === 0 && (
+              <section className="card px-4 py-4">
+                <p className="text-[10px] uppercase tracking-[0.14em] text-ink-400 mb-2 flex items-center gap-1.5">
+                  <span className="text-sm leading-none">✉</span> From Sreema
+                </p>
+                <p className="text-[12px] text-ink-500">
+                  Nothing here yet for {programme.shortName ?? programme.name}. Her replies and
+                  notes will show up in this spot.
+                </p>
+              </section>
+            )}
+          </aside>
+
+          {/* Main: the current programme's fields */}
+          <div className="order-2 lg:order-1 flex-1 min-w-0">
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <section className="card px-5 py-4">
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-[0.14em] text-ink-400 mb-1">
+                      Now checking in
+                    </p>
+                    <h3 className="font-serif text-lg text-ink-900 truncate flex items-center gap-2">
+                      {cur.vibeTouched && (
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: VIBE_COLOR[cur.vibe] }}
+                        />
+                      )}
+                      {programme.name}
+                    </h3>
+                    <p className="mt-0.5 text-[11px] text-ink-500">
+                      Checked in by <span className="text-ink-700">{submitter}</span>
+                      {loadingExisting && (
+                        <span className="text-ink-400"> · loading existing…</span>
+                      )}
+                    </p>
+                    {included.has(current) && (
+                      <button
+                        type="button"
+                        onClick={() => unInclude(current)}
+                        className="mt-1 text-[10px] text-ink-400 hover:text-crimson underline underline-offset-2"
+                      >
+                        Remove from this batch
+                      </button>
+                    )}
+                  </div>
+                  <div className="w-full sm:w-auto sm:min-w-[220px]">
+                    <label className="block text-[10px] uppercase tracking-[0.14em] text-ink-400 mb-1">
+                      Accountable
+                    </label>
+                    <input
+                      value={cur.accountable}
+                      onChange={(e) => patchCurrent({ accountable: e.target.value })}
+                      placeholder={programme.lead}
+                      className="w-full bg-cream border border-sand-200 rounded-lg px-3 py-2 text-sm text-ink-900 placeholder:text-ink-300 focus:outline-none focus:ring-2 focus:ring-coral/40"
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <SectionCard label="How does it feel this week?" covered={curCoverage.vibe}>
+                <div className="grid grid-cols-3 gap-2.5">
+                  {(["going_well", "watch_it", "stuck"] as Vibe[]).map((v) => {
+                    const selected = cur.vibe === v && cur.vibeTouched;
+                    return (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => patchCurrent({ vibe: v, vibeTouched: true })}
+                        className={`flex flex-col items-center gap-1.5 px-2 py-3 rounded-xl border-2 transition ${
+                          selected ? "bg-cream" : "bg-sand-50 border-sand-200 hover:border-sand-300"
+                        }`}
+                        style={selected ? { borderColor: VIBE_COLOR[v] } : undefined}
+                      >
+                        <BabyElephant vibe={v} size={56} background={false} animated={selected} />
+                        <span className="text-xs font-medium text-ink-900">{VIBE_LABEL[v]}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-2 text-[11px] text-ink-500">
+                  {cur.vibeTouched ? VIBE_HELP[cur.vibe] : "Pick the one that fits this week."}
+                </p>
+              </SectionCard>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <SectionCard label="Open decisions" covered={curCoverage.decisions}>
+                  <p className="text-[11px] text-ink-500 mb-2">
+                    What needs a call this week? One per line, up to {LINES_MAX}.
+                  </p>
+                  <textarea
+                    value={cur.openTopics}
+                    onChange={(e) =>
+                      patchCurrent({
+                        openTopics: e.target.value,
+                        ...(e.target.value.trim().length > 0 ? { noDecisions: false } : {})
+                      })
+                    }
+                    disabled={cur.noDecisions}
+                    rows={4}
+                    placeholder="Tell if there are any discussions or decisions waiting"
+                    className="w-full bg-sand-50 border border-sand-200 rounded-lg px-3 py-2 text-sm text-ink-900 placeholder:text-ink-300 focus:outline-none focus:ring-2 focus:ring-coral/40 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
+                  />
+                  <LineCounter value={cur.openTopics} disabled={cur.noDecisions} />
+                  <SkipCheckbox
+                    label="No decisions needed this week"
+                    checked={cur.noDecisions}
+                    onChange={(checked) =>
+                      patchCurrent({ noDecisions: checked, ...(checked ? { openTopics: "" } : {}) })
+                    }
+                  />
+                </SectionCard>
+
+                <SectionCard label="In your own words" covered={curCoverage.freetext}>
+                  <p className="text-[11px] text-ink-500 mb-2">
+                    How would you describe the week to Sreema? A sentence or two.
+                  </p>
+                  <textarea
+                    value={cur.freeText}
+                    onChange={(e) => patchCurrent({ freeText: e.target.value })}
+                    rows={4}
+                    placeholder="Describe how the week felt, in your own words"
+                    className="w-full bg-sand-50 border border-sand-200 rounded-lg px-3 py-2 text-sm text-ink-900 placeholder:text-ink-300 focus:outline-none focus:ring-2 focus:ring-coral/40 resize-none"
+                  />
+                  {!curCoverage.freetext && cur.freeText.length > 0 && (
+                    <p className="mt-1.5 text-[11px] text-ink-400">
+                      {cur.freeText.trim().length < FREE_TEXT_MIN
+                        ? `A few more words. ${FREE_TEXT_MIN - cur.freeText.trim().length} to go.`
+                        : "A real sentence, please. The CEO reads this."}
+                    </p>
+                  )}
+                </SectionCard>
+              </div>
+
+              <section className="card px-5 py-4">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-[10px] uppercase tracking-[0.14em] text-ink-400">
+                    Files & folders for Sreema (optional)
+                  </label>
+                  <span className="text-[9px] text-ink-400">she can download these</span>
+                </div>
+                <p className="text-[11px] text-ink-500 mb-3">
+                  Attach anything worth a look, a PDF, a spreadsheet, a deck. Got a
+                  whole folder? Zip it and drop it in. Sreema downloads these
+                  directly. They are not read or summarised by AI.
+                </p>
+
+                {cur.existingAttachments.length > 0 && (
+                  <ul className="mb-2 space-y-1">
+                    {cur.existingAttachments.map((a) => (
+                      <li
+                        key={a.url}
+                        className="flex items-center gap-2 text-[12px] text-ink-700"
+                      >
+                        <FileIcon />
+                        <a
+                          href={a.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="truncate hover:text-coral hover:underline"
+                          title="View this file"
+                        >
+                          {a.name}
+                        </a>
+                        <span className="text-[10px] text-ink-400 shrink-0">already attached</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            patchCurrent({
+                              existingAttachments: cur.existingAttachments.filter(
+                                (x) => x.url !== a.url
+                              )
+                            })
+                          }
+                          className="ml-auto text-ink-400 hover:text-crimson text-sm leading-none shrink-0"
+                          aria-label={`Remove ${a.name}`}
+                          title="Remove on submit"
+                        >
+                          ×
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {cur.files.length > 0 && (
+                  <ul className="mb-3 space-y-1">
+                    {cur.files.map((f, i) => (
+                      <li
+                        key={`${f.name}-${i}`}
+                        className="flex items-center gap-2 text-[12px] text-ink-800"
+                      >
+                        <FileIcon />
+                        <span className="truncate">{f.name}</span>
+                        <span className="text-[10px] text-ink-400 shrink-0">
+                          {(f.size / 1024 / 1024).toFixed(f.size < 1024 * 1024 ? 2 : 1)} MB
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            patchCurrent({ files: cur.files.filter((_, idx) => idx !== i) })
+                          }
+                          className="ml-auto text-ink-400 hover:text-crimson text-sm leading-none shrink-0"
+                          aria-label={`Remove ${f.name}`}
+                        >
+                          ×
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <label
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (!submitting) setDragActive(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    setDragActive(false);
+                  }}
+                  onDrop={handleDrop}
+                  className={`flex flex-col items-center justify-center gap-1.5 px-4 py-6 rounded-xl border-2 border-dashed cursor-pointer text-center transition ${
+                    dragActive
+                      ? "border-coral bg-coral/5"
+                      : "border-sand-300 bg-sand-50 hover:border-coral/50 hover:bg-coral/[0.02]"
                   }`}
                 >
-                  <button
-                    type="button"
-                    onClick={() => setCurrent(p.id)}
-                    className="inline-flex items-center gap-1.5"
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="w-7 h-7 text-coral"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
                   >
-                    <span
-                      className="w-2 h-2 rounded-full"
-                      style={{
-                        backgroundColor: en.vibeTouched ? VIBE_COLOR[en.vibe] : "#D0CBE2"
-                      }}
-                    />
-                    {p.shortName ?? p.name}
-                    <span className={cov.all ? "text-leaf" : "text-amber"}>
-                      {cov.all ? "✓" : "…"}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => unInclude(p.id)}
-                    aria-label={`Remove ${p.name}`}
-                    className="ml-0.5 w-4 h-4 inline-flex items-center justify-center rounded-full text-ink-400 hover:text-ink-700 hover:bg-sand-200"
-                  >
-                    ×
-                  </button>
-                </span>
-              );
-            })}
-          </div>
-        )}
-
-        {cur.existedThisWeek && (
-          <div className="mb-4 px-4 py-3 rounded-lg bg-[#F8E7CC] border border-[#E8C685] text-[#7A4A0E] text-sm flex items-start gap-3">
-            <span className="text-base leading-none">↻</span>
-            <div>
-              <strong>{programme.name} was already checked in this week.</strong>{" "}
-              Submitting again will overwrite it. The form is pre-filled with what was there.
-            </div>
-          </div>
-        )}
-
-        {sreemaResponses.length > 0 && (
-          <div className="mb-4 px-4 py-3 rounded-lg bg-[#ECEAF7] border border-[#D0CBE2]">
-            <p className="text-[10px] uppercase tracking-[0.14em] text-[#6C6689] mb-2 flex items-center gap-1.5">
-              <span className="text-sm leading-none">✉</span> From Sreema
-            </p>
-            <ul className="space-y-2.5">
-              {sreemaResponses.map((r, i) => {
-                const person = personById(r.to);
-                return (
-                  <li key={i} className="text-sm min-w-0">
-                    {r.askText && (
-                      <p className="text-[11px] text-ink-500 mb-0.5 break-words">
-                        re: “{r.askText}”
-                      </p>
-                    )}
-                    <div className="flex flex-wrap items-center gap-2">
-                      {r.statusLabel && (
-                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-white/70 text-[#6C6689] border border-[#D0CBE2]">
-                          {r.statusLabel}
-                        </span>
-                      )}
-                      {r.note && (
-                        <span className="text-ink-800 whitespace-pre-wrap break-words">
-                          {person && <span className="font-medium text-coral">@{person.first} </span>}
-                          {r.note}
-                        </span>
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        )}
-
-        {(() => {
-          const viewedAt = ceoLog.views[current];
-          const sub = existingByProgramme[current];
-          const seen =
-            viewedAt &&
-            sub?.submittedAt &&
-            new Date(viewedAt) >= new Date(sub.submittedAt);
-          return seen ? (
-            <p className="mb-4 text-[11px] text-ink-500 flex items-center gap-1.5 px-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-leaf shrink-0" />
-              Sreema viewed your last check-in {relativeTime(viewedAt)}.
-            </p>
-          ) : null;
-        })()}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <section className="card px-5 py-4">
-            <label className="block text-[10px] uppercase tracking-[0.14em] text-ink-400 mb-2">
-              Programme
-            </label>
-            <select
-              value={current}
-              onChange={(e) => setCurrent(e.target.value)}
-              disabled={submitting}
-              className="w-full bg-sand-50 border border-sand-200 rounded-lg px-3 py-2.5 text-sm text-ink-900 focus:outline-none focus:ring-2 focus:ring-coral/40 disabled:opacity-60"
-            >
-              {programmes.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                  {included.has(p.id) ? "  ✓ added" : ""}
-                </option>
-              ))}
-            </select>
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <p className="text-[11px] text-ink-500">
-                Checked in by <span className="text-ink-700">{submitter}</span>
-              </p>
-              {loadingExisting && (
-                <span className="text-[10px] text-ink-400">loading existing…</span>
-              )}
-            </div>
-          </section>
-
-          <section className="card px-5 py-4">
-            <label className="block text-[10px] uppercase tracking-[0.14em] text-ink-400 mb-2">
-              Accountable for this programme
-            </label>
-            <input
-              value={cur.accountable}
-              onChange={(e) => patchCurrent({ accountable: e.target.value })}
-              placeholder={programme.lead}
-              className="w-full bg-sand-50 border border-sand-200 rounded-lg px-3 py-2.5 text-sm text-ink-900 placeholder:text-ink-300 focus:outline-none focus:ring-2 focus:ring-coral/40"
-            />
-          </section>
-
-          <SectionCard label="How does it feel this week?" covered={curCoverage.vibe}>
-            <div className="grid grid-cols-3 gap-2.5">
-              {(["going_well", "watch_it", "stuck"] as Vibe[]).map((v) => {
-                const selected = cur.vibe === v && cur.vibeTouched;
-                return (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => patchCurrent({ vibe: v, vibeTouched: true })}
-                    className={`flex flex-col items-center gap-1.5 px-2 py-3 rounded-xl border-2 transition ${
-                      selected ? "bg-cream" : "bg-sand-50 border-sand-200 hover:border-sand-300"
-                    }`}
-                    style={selected ? { borderColor: VIBE_COLOR[v] } : undefined}
-                  >
-                    <BabyElephant vibe={v} size={56} background={false} animated={selected} />
-                    <span className="text-xs font-medium text-ink-900">{VIBE_LABEL[v]}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <p className="mt-2 text-[11px] text-ink-500">
-              {cur.vibeTouched ? VIBE_HELP[cur.vibe] : "Pick the one that fits this week."}
-            </p>
-          </SectionCard>
-
-          <SectionCard label="People signals" covered={curCoverage.people}>
-            <p className="text-[11px] text-ink-500 mb-2">
-              How is everyone feeling? One per line, up to {LINES_MAX}.
-            </p>
-            <textarea
-              value={cur.peopleNote}
-              onChange={(e) =>
-                patchCurrent({
-                  peopleNote: e.target.value,
-                  ...(e.target.value.trim().length > 0 ? { noPeople: false } : {})
-                })
-              }
-              disabled={cur.noPeople}
-              rows={3}
-              placeholder="Share anything about people worth knowing this week"
-              className="w-full bg-sand-50 border border-sand-200 rounded-lg px-3 py-2 text-sm text-ink-900 placeholder:text-ink-300 focus:outline-none focus:ring-2 focus:ring-coral/40 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
-            />
-            <LineCounter value={cur.peopleNote} disabled={cur.noPeople} />
-            <SkipCheckbox
-              label="Nothing notable on people this week"
-              checked={cur.noPeople}
-              onChange={(checked) =>
-                patchCurrent({ noPeople: checked, ...(checked ? { peopleNote: "" } : {}) })
-              }
-            />
-          </SectionCard>
-
-          <SectionCard label="Open decisions" covered={curCoverage.decisions}>
-            <p className="text-[11px] text-ink-500 mb-2">
-              What needs a call this week? One per line, up to {LINES_MAX}.
-            </p>
-            <textarea
-              value={cur.openTopics}
-              onChange={(e) =>
-                patchCurrent({
-                  openTopics: e.target.value,
-                  ...(e.target.value.trim().length > 0 ? { noDecisions: false } : {})
-                })
-              }
-              disabled={cur.noDecisions}
-              rows={3}
-              placeholder="Tell if there are any discussions or decisions waiting"
-              className="w-full bg-sand-50 border border-sand-200 rounded-lg px-3 py-2 text-sm text-ink-900 placeholder:text-ink-300 focus:outline-none focus:ring-2 focus:ring-coral/40 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
-            />
-            <LineCounter value={cur.openTopics} disabled={cur.noDecisions} />
-            <SkipCheckbox
-              label="No decisions needed this week"
-              checked={cur.noDecisions}
-              onChange={(checked) =>
-                patchCurrent({ noDecisions: checked, ...(checked ? { openTopics: "" } : {}) })
-              }
-            />
-          </SectionCard>
-
-          <SectionCard label="In your own words" covered={curCoverage.freetext}>
-            <p className="text-[11px] text-ink-500 mb-2">
-              How would you describe the week to Sreema? A sentence or two.
-            </p>
-            <textarea
-              value={cur.freeText}
-              onChange={(e) => patchCurrent({ freeText: e.target.value })}
-              rows={3}
-              placeholder="Describe how the week felt, in your own words"
-              className="w-full bg-sand-50 border border-sand-200 rounded-lg px-3 py-2 text-sm text-ink-900 placeholder:text-ink-300 focus:outline-none focus:ring-2 focus:ring-coral/40 resize-none"
-            />
-            {!curCoverage.freetext && cur.freeText.length > 0 && (
-              <p className="mt-1.5 text-[11px] text-ink-400">
-                {cur.freeText.trim().length < FREE_TEXT_MIN
-                  ? `A few more words. ${FREE_TEXT_MIN - cur.freeText.trim().length} to go.`
-                  : "A real sentence, please. The CEO reads this."}
-              </p>
-            )}
-          </SectionCard>
-
-          <section className="card px-5 py-4">
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-[10px] uppercase tracking-[0.14em] text-ink-400">
-                Files & folders for Sreema (optional)
-              </label>
-              <span className="text-[9px] text-ink-400">she can download these</span>
-            </div>
-            <p className="text-[11px] text-ink-500 mb-3">
-              Attach anything worth a look, a PDF, a spreadsheet, a deck. Got a
-              whole folder? Zip it and drop it in. Sreema downloads these
-              directly. They are not read or summarised by AI.
-            </p>
-
-            {cur.existingAttachments.length > 0 && (
-              <ul className="mb-2 space-y-1">
-                {cur.existingAttachments.map((a) => (
-                  <li
-                    key={a.url}
-                    className="flex items-center gap-2 text-[12px] text-ink-700"
-                  >
-                    <FileIcon />
-                    <a
-                      href={a.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="truncate hover:text-coral hover:underline"
-                      title="View this file"
-                    >
-                      {a.name}
-                    </a>
-                    <span className="text-[10px] text-ink-400 shrink-0">already attached</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        patchCurrent({
-                          existingAttachments: cur.existingAttachments.filter(
-                            (x) => x.url !== a.url
-                          )
-                        })
-                      }
-                      className="ml-auto text-ink-400 hover:text-crimson text-sm leading-none shrink-0"
-                      aria-label={`Remove ${a.name}`}
-                      title="Remove on submit"
-                    >
-                      ×
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {cur.files.length > 0 && (
-              <ul className="mb-3 space-y-1">
-                {cur.files.map((f, i) => (
-                  <li
-                    key={`${f.name}-${i}`}
-                    className="flex items-center gap-2 text-[12px] text-ink-800"
-                  >
-                    <FileIcon />
-                    <span className="truncate">{f.name}</span>
-                    <span className="text-[10px] text-ink-400 shrink-0">
-                      {(f.size / 1024 / 1024).toFixed(f.size < 1024 * 1024 ? 2 : 1)} MB
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        patchCurrent({ files: cur.files.filter((_, idx) => idx !== i) })
-                      }
-                      className="ml-auto text-ink-400 hover:text-crimson text-sm leading-none shrink-0"
-                      aria-label={`Remove ${f.name}`}
-                    >
-                      ×
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            <label
-              onDragOver={(e) => {
-                e.preventDefault();
-                if (!submitting) setDragActive(true);
-              }}
-              onDragLeave={(e) => {
-                e.preventDefault();
-                setDragActive(false);
-              }}
-              onDrop={handleDrop}
-              className={`flex flex-col items-center justify-center gap-1.5 px-4 py-6 rounded-xl border-2 border-dashed cursor-pointer text-center transition ${
-                dragActive
-                  ? "border-coral bg-coral/5"
-                  : "border-sand-300 bg-sand-50 hover:border-coral/50 hover:bg-coral/[0.02]"
-              }`}
-            >
-              <svg
-                viewBox="0 0 24 24"
-                className="w-7 h-7 text-coral"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M12 16V4" />
-                <path d="M7 9l5-5 5 5" />
-                <path d="M20 16v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2" />
-              </svg>
-              <span className="text-sm font-medium text-ink-800">
-                Drag files here, or <span className="text-coral">browse</span>
-              </span>
-              <span className="text-[10px] text-ink-400">
-                Any format, up to 25 MB each. Zip a folder to send it whole.
-              </span>
-              <input
-                type="file"
-                multiple
-                className="hidden"
-                disabled={submitting}
-                onChange={(e) => {
-                  addFiles(Array.from(e.target.files ?? []));
-                  e.target.value = "";
-                }}
-              />
-            </label>
-          </section>
-
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pt-1 gap-3 sm:gap-4">
-            <div className="text-[11px] text-ink-500 min-w-0">
-              {includedList.length === 0 ? (
-                <span>Start filling this programme to add it.</span>
-              ) : readyToSubmit ? (
-                <span className="text-leaf">
-                  {includedList.length}{" "}
-                  {includedList.length === 1 ? "programme" : "programmes"} ready to send.
-                </span>
-              ) : (
-                <span>
-                  Finish:{" "}
-                  <span className="text-ink-800 font-medium">
-                    {incompletePid.map((p) => p.shortName ?? p.name).join(", ")}
+                    <path d="M12 16V4" />
+                    <path d="M7 9l5-5 5 5" />
+                    <path d="M20 16v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2" />
+                  </svg>
+                  <span className="text-sm font-medium text-ink-800">
+                    Drag files here, or <span className="text-coral">browse</span>
                   </span>
-                </span>
-              )}
-            </div>
-            <button
-              type="submit"
-              disabled={!readyToSubmit || submitting}
-              className="w-full sm:w-auto px-6 py-2.5 rounded-full bg-coral text-cream text-sm font-medium hover:bg-coral/90 transition shadow-card disabled:bg-sand-300 disabled:text-ink-400 disabled:cursor-not-allowed disabled:shadow-none shrink-0"
-            >
-              {submitting
-                ? "Submitting…"
-                : includedList.length > 1
-                  ? `Submit ${includedList.length} check-ins`
-                  : "Submit check-in"}
-            </button>
+                  <span className="text-[10px] text-ink-400">
+                    Any format, up to 25 MB each. Zip a folder to send it whole.
+                  </span>
+                  <input
+                    type="file"
+                    multiple
+                    className="hidden"
+                    disabled={submitting}
+                    onChange={(e) => {
+                      addFiles(Array.from(e.target.files ?? []));
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              </section>
+
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pt-1 gap-3 sm:gap-4">
+                <div className="text-[11px] text-ink-500 min-w-0">
+                  {includedList.length === 0 ? (
+                    <span>Start filling this programme to add it.</span>
+                  ) : readyToSubmit ? (
+                    <span className="text-leaf">
+                      {includedList.length}{" "}
+                      {includedList.length === 1 ? "programme" : "programmes"} ready to send.
+                    </span>
+                  ) : (
+                    <span>
+                      Finish:{" "}
+                      <span className="text-ink-800 font-medium">
+                        {incompletePid.map((p) => p.shortName ?? p.name).join(", ")}
+                      </span>
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="submit"
+                  disabled={!readyToSubmit || submitting}
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-full bg-coral text-cream text-sm font-medium hover:bg-coral/90 transition shadow-card disabled:bg-sand-300 disabled:text-ink-400 disabled:cursor-not-allowed disabled:shadow-none shrink-0"
+                >
+                  {submitting
+                    ? "Submitting…"
+                    : includedList.length > 1
+                      ? `Submit ${includedList.length} check-ins`
+                      : "Submit check-in"}
+                </button>
+              </div>
+            </form>
           </div>
-        </form>
+        </div>
 
         {/* Add or remove programmes for this customer */}
         <div className="mt-4">
@@ -1147,6 +1180,139 @@ function ProgrammeManager({
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * All of this customer's programmes, always visible, scrollable sideways -
+ * the primary way to jump between programmes (replaces the old dropdown).
+ * Each tile shows: a left stripe in the programme's vibe colour (this
+ * session's if touched, otherwise last week's, faded until confirmed), a mini
+ * 3-segment coverage bar, and a "ready to send" corner badge once included.
+ */
+function ProgrammeRail({
+  programmes,
+  current,
+  setCurrent,
+  entries,
+  existingByProgramme,
+  included,
+  loading
+}: {
+  programmes: Programme[];
+  current: string;
+  setCurrent: (id: string) => void;
+  entries: Record<string, Entry>;
+  existingByProgramme: Record<string, PulseSubmission>;
+  included: Set<string>;
+  loading: boolean;
+}) {
+  const readyCount = programmes.filter(
+    (p) => included.has(p.id) && coverageOf(entries[p.id]).all
+  ).length;
+
+  return (
+    <div className="border-b border-sand-200 pb-4">
+      <div className="flex items-center justify-between mb-2.5 px-0.5">
+        <p className="text-[10px] uppercase tracking-[0.14em] text-ink-400">Your programmes</p>
+        <span className="text-[10px] text-ink-400">
+          {loading ? "loading…" : `${readyCount} of ${programmes.length} ready`}
+        </span>
+      </div>
+      <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 -mx-0.5 px-0.5 snap-x snap-proximity">
+        {programmes.map((p) => {
+          const en = entries[p.id];
+          const existing = existingByProgramme[p.id];
+          const cov = coverageOf(en);
+          const active = p.id === current;
+          const displayVibe = en?.vibeTouched ? en.vibe : existing?.vibe;
+          const confirmed = Boolean(en?.vibeTouched);
+          const ready = included.has(p.id) && cov.all;
+          return (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setCurrent(p.id)}
+              className={`relative snap-start shrink-0 w-[128px] text-left rounded-xl px-3 py-2.5 border transition-colors ${
+                active
+                  ? "bg-coral/[0.06] border-coral/50"
+                  : "bg-cream border-sand-200 hover:border-sand-300"
+              }`}
+            >
+              <span className="flex items-center gap-1.5 min-w-0">
+                {displayVibe && (
+                  <span
+                    className="w-[7px] h-[7px] rounded-full shrink-0"
+                    style={
+                      confirmed
+                        ? { backgroundColor: VIBE_COLOR[displayVibe] }
+                        : {
+                            backgroundColor: "transparent",
+                            border: `1.5px solid ${VIBE_COLOR[displayVibe]}`
+                          }
+                    }
+                    title={confirmed ? undefined : "Last week - not yet confirmed"}
+                  />
+                )}
+                <span className="text-[12px] font-medium text-ink-900 truncate">
+                  {p.shortName ?? p.name}
+                </span>
+                {ready && (
+                  <span className="text-leaf text-[11px] font-bold leading-none shrink-0">✓</span>
+                )}
+              </span>
+              <div className="mt-2 flex items-center gap-1">
+                {[cov.vibe, cov.decisions, cov.freetext].map((covered, i) => (
+                  <span
+                    key={i}
+                    className={`h-[3px] flex-1 rounded-full ${covered ? "bg-leaf" : "bg-sand-200"}`}
+                  />
+                ))}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A one-tap shortcut for a calm week: the fields are already pre-filled from
+ * the last submission, so this just confirms it should be included in this
+ * batch as-is, without retyping anything.
+ */
+function SameAsLastWeekBanner({
+  programme,
+  existing,
+  onKeep
+}: {
+  programme?: Programme;
+  existing: PulseSubmission;
+  onKeep: () => void;
+}) {
+  return (
+    <div className="rounded-xl border bg-coral/5 border-coral/20 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div className="flex items-start gap-2.5 min-w-0">
+        <span className="text-base leading-none mt-0.5" aria-hidden>
+          ↺
+        </span>
+        <p className="text-[12.5px] text-ink-700 min-w-0">
+          <span className="font-medium text-ink-900">
+            Same as last week for {programme?.shortName ?? programme?.name}?
+          </span>{" "}
+          It was <strong>{VIBE_LABEL[existing.vibe]}</strong>. Already filled in below, just
+          confirm to add it to this batch.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onKeep}
+        className="shrink-0 px-3.5 py-1.5 rounded-full bg-coral text-cream text-xs font-medium hover:bg-coral/90 transition"
+      >
+        Keep it as-is
+      </button>
+    </div>
   );
 }
 

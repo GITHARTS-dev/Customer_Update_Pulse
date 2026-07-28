@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { DM_Sans } from "next/font/google";
 import "./globals.css";
+import { EditModeProvider } from "@/components/EditModeProvider";
 import { InputShortcutProvider } from "@/components/InputShortcutProvider";
 
 // One typeface across the whole app. DM Sans is a variable font, so every
@@ -27,8 +28,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={dmSans.variable}>
       <body className="font-sans">
+        {/* EditModeProvider wraps the shortcut provider: the chooser's "Edit
+            this page" needs to reach into the edit session, and the draft
+            store has to outlive any single page so edits can span the pulse
+            page and its programme pages before one Publish. */}
+        <EditModeProvider>
           <InputShortcutProvider>{children}</InputShortcutProvider>
-        </body>
+        </EditModeProvider>
+      </body>
     </html>
   );
 }

@@ -4,7 +4,7 @@ import { resolveProgrammes, byIdOf } from "@/lib/programme-store";
 import { readAllSubmissions, readSubmission, writeSubmission } from "@/lib/store";
 import { generateNarratives, type NarrativeInputWithId } from "@/lib/claude";
 import { fetchJiraSnapshot, jiraConfigured } from "@/lib/jira";
-import { parsePeopleNote } from "@/lib/helpers";
+import { isoWeek } from "@/lib/helpers";
 import type { Attachment, JiraSnapshot, PulseSubmission, Vibe } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -25,7 +25,6 @@ interface SubmitEntry {
   programmeId: string;
   accountable?: string;
   vibe: Vibe;
-  peopleNote: string;
   openTopics: string;
   leadFreeText: string;
   attachments?: Attachment[];
@@ -37,7 +36,6 @@ interface SubmitBody {
   programmeId?: string;
   accountable?: string;
   vibe?: Vibe;
-  peopleNote?: string;
   openTopics?: string;
   leadFreeText?: string;
 }
@@ -66,11 +64,6 @@ function isMeaningfulProse(s: string): boolean {
   return trimmed.length >= 20 && distinct >= 5;
 }
 
-function weekOf(date: Date): number {
-  const firstJan = new Date(date.getFullYear(), 0, 1);
-  const days = Math.floor((date.getTime() - firstJan.getTime()) / 86400000);
-  return Math.ceil((days + firstJan.getDay() + 1) / 7);
-}
 
 const EMPTY_JIRA: JiraSnapshot = {
   total: 0,
@@ -103,7 +96,6 @@ export async function POST(req: Request, ctx: RouteContext) {
               programmeId: body.programmeId,
               accountable: body.accountable,
               vibe: body.vibe,
-              peopleNote: body.peopleNote ?? "",
               openTopics: body.openTopics ?? "",
               leadFreeText: body.leadFreeText ?? ""
             }
@@ -141,7 +133,7 @@ export async function POST(req: Request, ctx: RouteContext) {
   const submittedBy = body.submittedBy || customer.submitter || "the lead";
   const now = new Date();
   const submittedAt = now.toISOString();
-  const weekNumber = weekOf(now);
+  const weekNumber = isoWeek(now);
 
   const prepared = await Promise.all(
     rawEntries.map(async (entry) => {
@@ -166,7 +158,6 @@ export async function POST(req: Request, ctx: RouteContext) {
     programmeName: programme.name,
     lead: (entry.accountable ?? "").trim() || programme.lead,
     vibe: entry.vibe,
-    peopleNote: entry.peopleNote,
     openTopics: entry.openTopics,
     leadFreeText: entry.leadFreeText
   }));
@@ -214,7 +205,6 @@ export async function POST(req: Request, ctx: RouteContext) {
       weekNumber,
       submittedAt,
       vibe: entry.vibe,
-      people: parsePeopleNote(entry.peopleNote),
       openTopics: parseOpenTopics(entry.openTopics),
       leadFreeText: entry.leadFreeText || undefined,
       jira,

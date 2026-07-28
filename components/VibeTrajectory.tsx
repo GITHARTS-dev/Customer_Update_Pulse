@@ -25,6 +25,8 @@ function directionLine(history: WeekSnapshot[]): string {
 interface VibeTrajectoryProps {
   history: WeekSnapshot[];
   currentVibe: Vibe;
+  /** False when the latest check-in is over a week old. */
+  isFresh?: boolean;
 }
 
 /**
@@ -32,7 +34,7 @@ interface VibeTrajectoryProps {
  * without a shifting percentage. Each week is a dot coloured by its vibe, oldest
  * on the left. No numbers, no baseline to distort.
  */
-export function VibeTrajectory({ history, currentVibe }: VibeTrajectoryProps) {
+export function VibeTrajectory({ history, currentVibe, isFresh = true }: VibeTrajectoryProps) {
   const weeks = history.slice(-MAX_WEEKS);
 
   return (
@@ -78,8 +80,13 @@ export function VibeTrajectory({ history, currentVibe }: VibeTrajectoryProps) {
           <div className="mt-3 flex items-center gap-2.5 pt-3 border-t border-sand-200">
             <BabyElephant vibe={currentVibe} size={40} background={false} />
             <div className="min-w-0">
+              {/* "this week" only when the latest check-in actually is. */}
               <p className="text-sm text-ink-900 leading-tight">
-                Feeling <span style={{ color: VIBE_COLOR[currentVibe] }}>{VIBE_LABEL[currentVibe].toLowerCase()}</span> this week.
+                {isFresh ? "Feeling " : "Felt "}
+                <span style={{ color: VIBE_COLOR[currentVibe] }}>
+                  {VIBE_LABEL[currentVibe].toLowerCase()}
+                </span>
+                {isFresh ? " this week." : " at the last check-in."}
               </p>
               <p className="text-[11px] text-ink-400 mt-0.5">{directionLine(weeks)}</p>
             </div>

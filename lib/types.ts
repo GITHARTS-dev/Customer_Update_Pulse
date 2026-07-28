@@ -25,12 +25,6 @@ export interface JiraSnapshot {
   stalledNotes: string[];
 }
 
-export interface PersonSignal {
-  name: string;
-  signal: "warm" | "neutral" | "watch";
-  note?: string;
-}
-
 export interface OpenTopic {
   title: string;
   owner?: string;
@@ -59,7 +53,6 @@ export interface PulseSubmission {
   submittedAt: string;
 
   vibe: Vibe;
-  people: PersonSignal[];
   openTopics: OpenTopic[];
   leadFreeText?: string;
 
@@ -72,6 +65,32 @@ export interface PulseSubmission {
 
   /** Files the lead uploaded this week, for the CEO to open directly. */
   attachments?: Attachment[];
+
+  /**
+   * Set once a lead has hand-edited what Claude wrote and published it. Claude
+   * writes at a no-names altitude and the reader-side redactor enforces that,
+   * but an edited card is the lead's OWN words, published deliberately - so it
+   * is shown exactly as typed, names included, and never redacted or captioned
+   * as AI-written. Absence of this field means "still as Claude wrote it".
+   */
+  edited?: EditStamp;
+}
+
+/** Who last hand-edited a published card, and when. */
+export interface EditStamp {
+  at: string;
+  by: string;
+}
+
+/**
+ * Portfolio-level wording the lead has overridden on the main pulse page. Each
+ * field falls back to the computed sentence when absent, so an override only
+ * ever replaces the exact line it names.
+ */
+export interface PortfolioOverride {
+  headline?: string;
+  supporting?: string;
+  edited?: EditStamp;
 }
 
 export const VIBE_LABEL: Record<Vibe, string> = {
