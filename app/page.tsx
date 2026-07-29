@@ -29,15 +29,17 @@ export default function Launchpad() {
         />
       </div>
 
-      {/* Corner badges - logo left, account right. Fixed so they hold their
-          spot regardless of how tall the centered content below happens to be. */}
-      <div className="fixed top-4 left-4 sm:top-6 sm:left-6 z-20 flex items-center rounded-full border border-sand-200 bg-cream/90 backdrop-blur px-4 py-2.5 shadow-card">
+      {/* Corner marks - logo left, account right. Fixed so they hold their spot
+          regardless of how tall the centered content below happens to be. The
+          logo is brand mark, not a control, so it sits directly on the page -
+          no badge chrome pretending it's interactive the way the avatar is. */}
+      <div className="fixed top-5 left-5 sm:top-7 sm:left-7 z-20">
         <Image
           src="/logos/harts_logo.png"
           alt="HARTS Consulting"
           width={278}
           height={98}
-          className="h-9 w-auto sm:h-10"
+          className="h-8 w-auto sm:h-9"
           priority
         />
       </div>
