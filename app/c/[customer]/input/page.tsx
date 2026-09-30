@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { BabyElephant } from "@/components/BabyElephant";
+import { VoiceCapture } from "@/components/VoiceCapture";
+import type { RoutedTranscript } from "@/lib/transcript-router";
 import { getCustomer, primaryCustomer } from "@/lib/customers";
 import { personById } from "@/lib/people";
 import { ACTION_LABEL, type ActionStatus } from "@/lib/actions";
@@ -169,6 +171,10 @@ function LeadInputForm() {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  // Sentences from the spoken update that Claude would not guess a programme
+  // for. Held here rather than dropped, so the lead's own words never go
+  // missing just because the router was unsure.
+  const [unassigned, setUnassigned] = useState<string[]>([]);
 
   const programme = byId[current] ?? programmes[0];
 
@@ -308,6 +314,56 @@ function LeadInputForm() {
       [current]: { ...(prev[current] ?? blankEntry(programme.lead)), ...patch }
     }));
     markTouched(current);
+  }
+
+  /**
+   * Turns one spoken update into pre-filled cards. Only the programmes the lead
+   * actually talked about are filled and included in the week; the rest are
+   * left exactly as they were, so silence stays silence rather than becoming an
+   * invented check-in. Every sentence is the lead's own words, and nothing is
+   * submitted until they have read each card.
+   */
+  function applyRouted(routed: RoutedTranscript) {
+    if (routed.programmes.length === 0 && routed.unassigned.length === 0) return;
+
+    setEntries((prev) => {
+      const next = { ...prev };
+      for (const r of routed.programmes) {
+        const lead = byId[r.programmeId]?.lead ?? "";
+        const ex = existingByProgramme[r.programmeId];
+        // Start from what is already there, so an existing check-in keeps its
+        // attachments and its "already submitted this week" warning.
+        const base = prev[r.programmeId] ?? (ex ? entryFromExisting(ex, lead) : blankEntry(lead));
+        const decisions = r.decisions.join("\n");
+        next[r.programmeId] = {
+          ...base,
+          vibe: r.vibe,
+          // Claude only ever suggests the vibe. It is shown pre-selected and
+          // the lead confirms it by submitting, since the whole CEO page keys
+          // off this one field.
+          vibeTouched: true,
+          openTopics: decisions,
+          noDecisions: decisions.length === 0,
+          freeText: r.words.join(" ")
+        };
+      }
+      return next;
+    });
+
+    for (const r of routed.programmes) markTouched(r.programmeId);
+    setUnassigned(routed.unassigned);
+
+    // Land on the first programme that was filled, so the lead starts reviewing
+    // where the words actually went.
+    const first = programmes.find((p) => routed.programmes.some((r) => r.programmeId === p.id));
+    if (first) setCurrent(first.id);
+  }
+
+  /** Files a sentence the router could not place into the open programme. */
+  function placeUnassigned(sentence: string) {
+    const existingText = (entries[current] ?? blankEntry(programme.lead)).freeText.trim();
+    patchCurrent({ freeText: existingText ? `${existingText} ${sentence}` : sentence });
+    setUnassigned((prev) => prev.filter((s) => s !== sentence));
   }
 
   // Merge newly picked/dropped files into the current programme, skipping exact
@@ -551,6 +607,52 @@ function LeadInputForm() {
         {error && (
           <div className="mb-4 px-4 py-3 rounded-lg bg-[#F2D9D3] border border-[#E8B5A8] text-[#7E1F14] text-sm">
             {error}
+          </div>
+        )}
+
+        {/* Speak once, review eight cards. The fields below stay exactly as they
+            were, and are now the review and repair surface rather than the only
+            way in - a lead can still type a single programme by hand. */}
+        <div className="mb-4">
+          <VoiceCapture
+            customerId={customer.id}
+            onRouted={applyRouted}
+            disabled={submitting || loadingExisting}
+          />
+        </div>
+
+        {unassigned.length > 0 && (
+          <div className="mb-4 px-4 py-3 rounded-card bg-[#F8E7CC] border border-[#E8C685]">
+            <p className="text-sm text-[#7A4A0E]">
+              <strong>
+                {unassigned.length === 1
+                  ? "One sentence did not clearly belong to a programme."
+                  : `${unassigned.length} sentences did not clearly belong to a programme.`}
+              </strong>{" "}
+              Open the right programme and add each one, or leave it out.
+            </p>
+            <ul className="mt-2.5 space-y-2">
+              {unassigned.map((s, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm text-ink-900">
+                  <span className="flex-1 min-w-0 break-words">“{s}”</span>
+                  <button
+                    type="button"
+                    onClick={() => placeUnassigned(s)}
+                    className="shrink-0 text-xs px-2 py-1 rounded-md bg-white/70 border border-[#E8C685] text-[#7A4A0E] hover:bg-white"
+                  >
+                    Add to {programme.shortName ?? programme.name}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUnassigned((prev) => prev.filter((x) => x !== s))}
+                    aria-label="Leave this sentence out"
+                    className="shrink-0 text-xs px-2 py-1 rounded-md text-[#7A4A0E] hover:bg-white/60"
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 

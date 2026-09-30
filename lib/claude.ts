@@ -28,7 +28,7 @@ export interface NarrativeOutput {
 // with a kind (win/watch/ask), never rewrites it. So we split the lead's words
 // deterministically here, number them, and ask Claude to classify by number.
 // That guarantees the card shows exactly what the lead wrote.
-function splitSentences(text: string): string[] {
+export function splitSentences(text: string): string[] {
   return (text || "")
     .replace(/\s+/g, " ")
     .split(/(?<=[.!?])\s+/)
@@ -160,7 +160,7 @@ function programmeBlock(input: NarrativeInput, candidates: string[], id?: string
     .join("\n");
 }
 
-function stripFences(raw: string): string {
+export function stripFences(raw: string): string {
   let text = raw.trim();
   if (text.startsWith("```")) {
     text = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
@@ -177,7 +177,7 @@ function stripFences(raw: string): string {
   return text.trim();
 }
 
-function requireApiKey(): void {
+export function requireApiKey(): void {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error(
       "ANTHROPIC_API_KEY is not set. Add it to .env.local and restart the dev server."
